@@ -1,5 +1,6 @@
 # 旧文件/备份
 references/old/
+references/Prius_2D_Practice_backup.aedt
 
 # AEDT 自动生成
 *.aedt.lock
@@ -21,3 +22,7 @@ build/
 
 # 日志
 *.log
+
+# 截图 (临时)
+*.png
+*.jpg
