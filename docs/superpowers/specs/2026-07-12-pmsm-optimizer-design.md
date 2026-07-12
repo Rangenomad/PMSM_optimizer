@@ -31,13 +31,12 @@
 
 ## 模板结构
 
-模板文件 `Prius_2D_Practice.aedt` 包含 3 个设计，从原模板清理后保留：
+模板文件 `Prius_2D_Practice.aedt` 包含 2 个设计，从原模板清理后保留：
 
 | 设计名 | 求解器类型 | 用途 | 边界条件 | 绕组 |
 |--------|-----------|------|---------|------|
 | `4_Partial_motor_MS2` | MagnetostaticXY | Sub-flow A: Ld/Lq MAP | Balloon (Region 外边界) | Current 激励 ×6, Matrix(9匝/线圈) |
 | `5_Partial_motor_TR` | TransientXY | Sub-flow B/C/D: 反电势/额定扭矩/效率 MAP | Vector Potential=0 (外弧边), Master/Slave (径向边) | Winding Group + Coil(9匝/线圈) |
-| `6_Partial_motor_CT` | TransientXY | Sub-flow B/C/D 备用/对照 | Vector Potential=0 (外弧边), Master/Slave (径向边) | (同上) |
 
 ### 关键设计变量
 
@@ -148,14 +147,14 @@ angle_steps:   电流角分点数 (0-90°)
 1. 设置 `Imax=0`（通过变量），绕组不贡献磁场
 2. 设置 `Speed_rpm` 到用户指定转速
 3. 求解 2-3 个电周期
-4. 提取三相感应电压 `Voltage(A)`, `Voltage(B)`, `Voltage(C)`
+4. 提取三相感应电压 `Voltage(Phase_A)`, `Voltage(Phase_B)`, `Voltage(Phase_C)`
 5. FFT 分析基波幅值和 THD
 
 **输入参数**:
 ```
-rated_speed:     额定转速 (rpm)
-elec_periods:    仿真电周期数 (默认 2)
-time_steps:      每周期步数 (默认 200)
+rated_speed:           额定转速 (rpm)
+elec_periods:          仿真电周期数 (默认 2)
+time_steps_per_cycle:  每周期步数 (默认 200)
 ```
 
 **输出**: 三相 BEMF 波形 + 基波幅值 + THD + 线反电势常数 Ke (V/krpm)
@@ -167,22 +166,34 @@ time_steps:      每周期步数 (默认 200)
 **求解器**: TransientXY (`5_Partial_motor_TR`)
 **原理**: 额定负载、额定转速，仿真一个完整电周期。
 
+**电流角说明**：
+```
+Thet 是 A 相电流超前 A 相反电势的相位角（电角度）
+
+Id = Imax * sin(Thet)     Thet < 0 → 弱磁方向（Id 负）
+Iq = Imax * cos(Thet)     Thet > 0 → 增磁方向（Id 正）
+IPM 电机 MTPA 通常在 -20° ~ -45°（负 Id，利用磁阻转矩）
+```
+
 **实现要点**:
-1. 设置 `Imax` 到额定电流
-2. 如果用户没指定电流角，用 `Thet_deg=0`（或 MTPA 查找）
-3. 设置 `Speed_rpm` 到额定转速
-4. 求解 3 个电周期（取最后一个周期的稳态数据）
-5. 提取 `Moving1.Torque` 波形
+1. 设置 `Imax` 到额定电流，`Speed_rpm` 到额定转速
+2. **MTPA 自动搜索**（用户未指定电流角时）：
+   - 以粗网格（≈200 步/周期）跑 5-6 个候选角的短仿真（1 个电周期）
+   - 候选角：`[0, -15, -25, -35, -45, -60]` 度
+   - 提取每个角的平均扭矩，选扭矩最大的角度
+   - 如果 Sub-flow A 的 Ld/Lq/Φ 数据可用，用 MTPA 公式直接算最优角（跳过 FEA 扫描）
+3. 以 MTPA 角（或用户指定角）跑完整仿真（3 个电周期）
+4. 取最后一个周期稳态数据，提取 `Moving1.Torque` 波形
 
 **输入参数**:
 ```
 rated_current:  额定电流 (A)
-current_angle:  电流角 (°)
+current_angle:  电流角 (°), 可选 — 不指定则自动 MTPA
 rated_speed:    额定转速 (rpm)
 elec_periods:   仿真电周期数 (默认 3)
 ```
 
-**输出**: 平均扭矩 + 扭矩脉动率 + 最大/最小扭矩
+**输出**: MTPA 最优角 + 平均扭矩 + 扭矩脉动率 + 最大/最小扭矩
 
 ---
 
@@ -192,7 +203,7 @@ elec_periods:   仿真电周期数 (默认 3)
 **原理**: (转速 × 扭矩) 二维网格扫描，每点跑一个电周期。
 
 **实现要点**:
-1. 基于 Sub-flow A 的 Ld/Lq MAP 反算每个 (n, T) 工作点的 Id/Iq
+1. 工作点反算：优先使用 Sub-flow A 的 Ld/Lq MAP 反算 (Id, Iq)；缺数据时使用线性近似估算
 2. 批量提交仿真（逐点或并行）
 3. 从每个工作点提取：相电流幅值 Is、铜损 Pcu=3×Is²×Rs、铁损（如果模型配置了铁损计算）、电压幅值 Vs、功率因数
 4. 计算调制比 M = Vs / (Vdc/√3)
@@ -212,23 +223,33 @@ imax:                 最大相电流 (A)
 ### Sub-flow E：外特性计算
 
 **求解器**: 纯数学计算（不跑 FEA）
-**原理**: 在电压圆 Vs ≤ Vdc/√3 和电流圆 Is ≤ Imax 约束下，基于 Sub-flow A 的 Ld/Lq MAP 计算各转速最大输出扭矩。
+**原理**: 在电压圆 Vs ≤ Vdc/√3（调制比 M ≤ 1.0，SVPWM 线性区）和电流圆 Is ≤ Imax 约束下，基于 Sub-flow A 的 Ld/Lq MAP 计算各转速最大输出扭矩。
+
+**调制比说明**：
+```
+调制比 M = Vs / (Vdc/√3)
+
+线性调制区 (SVPWM):  M_max = 1.0  ← 外特性计算使用此限
+过调制(方波):        M_max ≈ 1.10 (不用于外特性计算)
+```
 
 **实现要点**:
 1. 从 Sub-flow A 获取 Ld(Id,Iq), Lq(Id,Iq), Φ 数据（插值模型）
-2. 对每个转速：
+2. 转速从 0 到用户指定的 n_max，几何分布（低速密高速疏）
+3. 对每个转速：
    a. 计算电频率 ω = 2π × n × PolePairs / 60
-   b. 求解 MTPA 工作点（恒扭矩区）：在电流圆上找扭矩最大点
-   c. 求解弱磁区工作点：超出电压限时沿电压圆边界计算
-3. 输出 T-n 特性曲线、工作点轨迹、转折点转速、峰值功率
+   b. **MTPA 区**（恒扭矩）：在电流圆上搜索扭矩最大点，检查 Vs ≤ Vdc/√3
+   c. **弱磁区**：超出电压限时沿电压圆与电流圆的交点计算
+4. 输出 T-n 曲线、转折点、峰值功率
 
 **输入参数**:
 ```
-Ld/Lq/Φ:    来自 Sub-flow A（必选前置）
+Ld/Lq/Φ:    来自 Sub-flow A（推荐前置 — 未提供时使用默认近似值）
 Vdc:         直流母线电压 (V)
 Imax:        最大相电流 (A)
-Rs:          相电阻 (Ω)
-speed_points: 转速分点数 (默认 20)
+speed_max:   最高转速 (rpm)     ← 外特性截止转速
+Rs:          相电阻 (Ω), 可选 — 默认 0（高速时可忽略）
+speed_points_n: 转速分点数 (默认 20)
 ```
 
 **输出**: T-n 曲线表 + 工作点轨迹 (Id, Iq) 表 + 转折点 + 峰值功率
@@ -263,10 +284,11 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 已在之前会话中完成并验证。功能：
 
 1. 从备份恢复模板文件
-2. 清理多余设计（保留 3 个）
-3. 4_MS2 → 设置 Balloon 边界
+2. 清理多余设计（保留 2 个核心设计 + 备份）
+3. 4_MS2 → 设置 Balloon 边界 + Current 激励 + Matrix
 4. 5_TR → 设置 MotionSetup (Speed_rpm 变量引用) + Transient Setup + Vector Potential
-5. 6_CT → 同上
+
+> 6_Partial_motor_CT 已移除 — 所有 Transient 子流程 (B/C/D) 统一使用 5_TR。
 
 **用户仍需在 GUI 中手动完成**：
 - Winding Group 电流公式输入（一次性的）
@@ -300,23 +322,15 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 - 第一步（连接模板）→ 更新为使用 `Prius_2D_Practice` 而非 `pmsm_template`
 - 第二步（修改参数）→ 补充当前模板的实际变量名列表
 - 第三步（判定需求）→ 无需修改
-- 子流程执行规范 → 需要补充：
-  - Sub-flow A 中 Magnetostatic 需用 `assign_current()` 而非 Winding Group 的说明
-  - Sub-flow B/C/D 中通过变量修改激励的具体方式
-  - 各子流程的实际参数名映射
+- 子流程执行规范 → 代码模板指向 `scripts/` 目录下的独立模块而非 `pmsm-methods.md`
 
 ### pmsm-methods.md
-- **Sub-flow A** → 改完善 TODO 代码：
-  - 补充 `assign_current()` 设置三相电流
-  - 补充 Park 变换磁链提取
-  - 补充主磁链 Φ 提取
-- **Sub-flow B** → 改完善 TODO 代码：
-  - 补充通过变量设置 Imax=0
-  - 补充瞬态求解时间设置
-  - 补充电压波形提取和 FFT
-- **Sub-flow C** → 补充完整代码（目前只有输出格式）
-- **Sub-flow D** → 补充完整代码框架
-- **Sub-flow E** → 补充完整数学计算代码
+替换所有 TODO 占位符，改为引用 `scripts/` 模块的说明和关键公式。
+- **Sub-flow A** → assign_current() 公式（含 9 匝因子）+ Park 变换
+- **Sub-flow B** → 变量 Imax=0 + 电压提取 + FFT + THD
+- **Sub-flow C** → MTPA 自动搜索 + 扭矩波形提取
+- **Sub-flow D** → 网格扫描 + Is/PF/M 提取
+- **Sub-flow E** → 纯数学外特性计算（Vdc/Imax/speed_max 输入）
 
 ---
 
@@ -326,7 +340,7 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 |------|------|
 | 模板清理 | ✅ 已验证 |
 | Balloon 边界 (4_MS2) | ✅ 已验证 |
-| Vector Potential (5_TR/6_CT) | ✅ 已验证 |
+| Vector Potential (5_TR) | ✅ 已验证 |
 | MotionSetup + Setup1 | ✅ 已验证 |
 | 绕组公式 GUI 设置 | ✅ 用户已完成 |
 | 磁钢材料属性 | ✅ 用户已手动设置 Br/Hc |
