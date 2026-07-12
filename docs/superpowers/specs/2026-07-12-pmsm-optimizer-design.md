@@ -33,29 +33,36 @@
 
 模板文件 `Prius_2D_Practice.aedt` 包含 3 个设计，从原模板清理后保留：
 
-| 设计名 | 求解器类型 | 用途 | 边界条件 |
-|--------|-----------|------|---------|
-| `4_Partial_motor_MS2` | MagnetostaticXY | Sub-flow A: Ld/Lq MAP | Balloon (Region 外边界) |
-| `5_Partial_motor_TR` | TransientXY | Sub-flow B/C/D: 反电势/额定扭矩/效率 MAP | Vector Potential=0 (外弧边), Master/Slave (径向边) |
-| `6_Partial_motor_CT` | TransientXY | Sub-flow B/C/D 备用/对照 | Vector Potential=0 (外弧边), Master/Slave (径向边) |
+| 设计名 | 求解器类型 | 用途 | 边界条件 | 绕组 |
+|--------|-----------|------|---------|------|
+| `4_Partial_motor_MS2` | MagnetostaticXY | Sub-flow A: Ld/Lq MAP | Balloon (Region 外边界) | Current 激励 ×6, Matrix(9匝/线圈) |
+| `5_Partial_motor_TR` | TransientXY | Sub-flow B/C/D: 反电势/额定扭矩/效率 MAP | Vector Potential=0 (外弧边), Master/Slave (径向边) | Winding Group + Coil(9匝/线圈) |
+| `6_Partial_motor_CT` | TransientXY | Sub-flow B/C/D 备用/对照 | Vector Potential=0 (外弧边), Master/Slave (径向边) | (同上) |
 
 ### 关键设计变量
 
-| 变量名 | 含义 | 默认值 |
-|--------|------|--------|
-| `Imax` | 相电流幅值 (A) | 变量，由子流程设置 |
-| `Speed_rpm` | 机械转速 (rpm) | 变量，由子流程设置 |
-| `Thet_deg` | 电流角/初始角度 (°) | 变量，由子流程设置 |
-| `PolePairs` | 极对数 | 4 (固定) |
-| `turns_per_slot` | 每槽匝数 | 模板预设 |
+| 变量名 | 公式 | 当前值 | 用途 |
+|--------|------|--------|------|
+| `Poles` | 8 | 8 | 极数 (固定) |
+| `PolePairs` | Poles/2 | 4 | 极对数 (固定) |
+| `Speed_rpm` | 3000 | 3000 | 机械转速 (rpm) |
+| `Omega` | 360*speed_rpm*PolePairs/60 | 72000 | 电角速度 (°/s) |
+| `Omega_rad` | Omega*pi/180 | 1256.63 | 电角速度 (rad/s) |
+| `Thet_deg` | 20 | 20 | 电流角/初始角度 (°) |
+| `Thet` | thet_deg*pi/180 | 0.349 | 电流角/初始角度 (rad) |
+| `Imax` | 250 | 250 | 相电流幅值 (A) |
 
 ### 绕组激励公式
 
 已在 GUI 中设置的 Winding Group 公式（用户一次性配置）：
 
-- **Phase_A**: `Imax*sin(2*pi*PolePairs*Speed_rpm/60*Time+Thet_deg*pi/180)`
-- **Phase_B**: `Imax*sin(2*pi*PolePairs*Speed_rpm/60*Time+Thet_deg*pi/180-2*pi/3)`
-- **Phase_C**: `Imax*sin(2*pi*PolePairs*Speed_rpm/60*Time+Thet_deg*pi/180+2*pi/3)`
+- **Phase_A**: `Imax*sin(Omega_rad*time + Thet)`
+- **Phase_B**: `Imax*sin(Omega_rad*time + Thet - 2*pi/3)`
+- **Phase_C**: `Imax*sin(Omega_rad*time + Thet + 2*pi/3)`
+
+> 自动化时只需修改 `Imax`、`Thet_deg`、`Speed_rpm` 三个变量即可改变激励。
+
+> **匝数**：每个线圈对象代表 9 匝（Coil 的 Conductor number / Matrix 的 NumberOfTurns = 9）。assign_current() 设的电流是总 MMF，需乘以 9。Winding Group 自动处理该乘法。
 
 ### 材料
 
@@ -74,16 +81,55 @@
 **求解器**: MagnetostaticXY (`4_Partial_motor_MS2`)
 **原理**: 电流角扫描法。在每个 (Id, Iq) 工作点求解静磁场，从磁链中提取 d/q 轴分量。
 
+**4_MS2 绕组结构**（已通过 Matrix 和 Current 激励预设）：
+
+```
+PhaseA: PhaseA1(9匝, 串联) + PhaseA2(9匝, 串联), 1并联支路
+PhaseB: PhaseB1(9匝, 串联) + PhaseB2(9匝, 串联), 1并联支路
+PhaseC: PhaseC1(9匝, 串联) + PhaseC2(9匝, 串联), 1并联支路
+```
+
+每相有 2 个 coil 对象，每个 coil 代表 **9 匝**（Conductor number / NumberOfTurns = 9）。
+
 **实现要点**:
+
 1. Magnetostatic 求解器不支持 Winding Group 激励 → 需要用 `assign_current()` 直接设置电流
-2. 对于每个工作点 (Id, Iq)，将三相电流设置为对应的静止电流值
-3. 求解后通过 `m2d.post.get_solution_data()` 提取 A/B/C 相磁链 (FluxLinkage)
-4. Park 变换将三相磁链转为 d/q 轴分量
+
+2. **电流变换（Id/Iq → Ia/Ib/Ic → 匝数放大）**：
+   ```
+   d 轴与 A 相对齐（θ=0°）：
+   
+   Ia =  Id
+   Ib = -0.5*Id + 0.866*Iq  
+   Ic = -0.5*Id - 0.866*Iq
+   
+   # assign_current 设置的是总 MMF，每线圈代表 9 匝
+   assign_current('PhaseA1', current=9*Ia)
+   assign_current('PhaseA2', current=9*Ia)
+   assign_current('PhaseB1', current=9*Ib)
+   assign_current('PhaseB2', current=9*Ib)
+   assign_current('PhaseC1', current=9*Ic)
+   assign_current('PhaseC2', current=9*Ic)
+   ```
+
+3. 求解后提取三相磁链，需乘匝数得到总磁链：
+   ```python
+   psi_a = 9 * (FluxLinkage(PhaseA1) + FluxLinkage(PhaseA2))
+   psi_b = 9 * (FluxLinkage(PhaseB1) + FluxLinkage(PhaseB2))
+   psi_c = 9 * (FluxLinkage(PhaseC1) + FluxLinkage(PhaseC2))
+   ```
+
+4. Park 变换将三相磁链转为 d/q 轴分量（θ=0°）：
+   ```python
+   psi_d =  2/3 * (psi_a*cos(0) + psi_b*cos(-2π/3) + psi_c*cos(+2π/3))  =  2/3*(psi_a - 0.5*psi_b - 0.5*psi_c)
+   psi_q = -2/3 * (psi_a*sin(0) + psi_b*sin(-2π/3) + psi_c*sin(+2π/3))  =  2/3*(0.866*psi_b - 0.866*psi_c)
+   ```
+
 5. Ld = Ψd/Id, Lq = Ψq/Iq（Id, Iq ≠ 0 时）
 
 **输入参数**:
 ```
-rated_current: 额定电流幅值 (A)
+rated_current: 额定电流幅值 (A) — 每根导体的电流，非匝数放大值
 max_current:   最大电流倍率 (×额定)
 current_steps: 电流幅值分点数
 angle_steps:   电流角分点数 (0-90°)
