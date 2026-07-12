@@ -37,7 +37,7 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 
 | 参数 | 值 | 说明 |
 |---|---|---|
-| 模板文件 | `references/pmsm_template.aedt` | 用户预先配置好的 PMSM 模型 |
+| 模板文件 | `references/Prius_2D_Practice.aedt` | 用户预先配置好的 PMSM 模型 |
 | 工作模式 | `non_graphical=False` | 图形模式，用户可实时查看 |
 | 会话模式 | `new_desktop=False, close_on_exit=False` | 复用已有 AEDT 会话 |
 | 求解器选择 | 根据子流程自动选择 | Magnetostatic / Transient |
@@ -46,7 +46,7 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 
 ```bash
 # 复制模板到工作目录
-cp references/pmsm_template.aedt ./pmsm_working.aedt
+cp references/Prius_2D_Practice.aedt ./pmsm_working.aedt
 
 python << 'EOF'
 import sys
@@ -85,20 +85,14 @@ EOF
 
 用户要求修改参数时执行此步。以下为可修改参数及其对应操作：
 
-| 参数 | 用户指令示例 | 操作代码 |
-|---|---|---|
-| 轴向长度 | "改到 80mm" | `m2d.model_depth = "80mm"` |
-| 每槽匝数 | "每槽 25 匝" | `m2d["turns_per_slot"] = "25"` |
-| 磁钢牌号 | "换成 N42SH" | 修改材料库中的磁钢属性 |
-| 硅钢牌号 | "定子换 B35AV1900" | 修改材料库中的硅钢属性 |
-| 额定电流 | "额定电流 15A" | 修改电流激励幅值 |
-| 额定转速 | "转速 3000rpm" | `m2d.set_initial_angle()` + MotionSetup 转速修改 |
-| 气隙长度 | "气隙改到 0.8mm" | 移动转子几何 |
-| 磁钢厚度 | "磁钢 5mm" | 修改磁钢几何尺寸 |
-| 绕组连接方式 | "Y 接" / "Δ 接" | 修改绕组设置 |
-| 铜线直径 | "线径 1.2mm" | 修改绕组属性 |
+| 参数 | 变量名 | 修改方式 |
+|------|--------|---------|
+| 相电流幅值 | `Imax` | `m2d['Imax'] = '250A'` |
+| 电流角 | `Thet_deg` | `m2d['Thet_deg'] = '-30°'` |
+| 机械转速 | `Speed_rpm` | `m2d['Speed_rpm'] = '3000rpm'` |
+| 极对数 | `PolePairs` | 固定值 (Poles/2=4) |
 
-**提示**：模板中的参数名（设计变量名）因人而异，AI 在执行修改前应先用 `m2d.variable_manager.design_variable_names` 列出可用变量让用户确认。
+**提示**：完整设计变量列表见设计文档 `docs/superpowers/specs/2026-07-12-pmsm-optimizer-design.md`。修改前先用 `m2d['VariableName']` 验证值。
 
 ---
 
@@ -143,7 +137,8 @@ PMSM 计算计划：
 
 ## 子流程执行规范
 
-所有子流程的代码模板位于 `references/pmsm-methods.md`。AI 对应选取代码块，替换 `{{placeholder}}` 后执行。
+所有子流程的代码位于 `scripts/` 目录，方法说明见 `references/pmsm-methods.md`。
+AI 根据用户指令选择模块调用。详见设计文档 `docs/superpowers/specs/2026-07-12-pmsm-optimizer-design.md`。
 
 ### 通用规范
 
