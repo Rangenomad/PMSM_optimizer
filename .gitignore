@@ -1,0 +1,23 @@
+# 旧文件/备份
+references/old/
+
+# AEDT 自动生成
+*.aedt.lock
+*.aedtresults/
+*.mxwlresults/
+*.asol
+*.dll
+*.tmp
+*.sab
+*.fct
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# 日志
+*.log
