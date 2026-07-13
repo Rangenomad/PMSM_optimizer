@@ -344,8 +344,8 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 | MotionSetup + Setup1 | ✅ 已验证 |
 | 绕组公式 GUI 设置 | ✅ 用户已完成 |
 | 磁钢材料属性 | ✅ 用户已手动设置 Br/Hc |
-| Sub-flow A 代码 | ❌ 待完成 |
-| Sub-flow B 代码 | ❌ 待完成 |
-| Sub-flow C 代码 | ❌ 待完成 |
-| Sub-flow D 代码 | ❌ 待完成 |
-| Sub-flow E 代码 | ❌ 待完成 |
+| Sub-flow A 代码 | ✅ 已完成 (scripts/subflow_a_ldlq.py) |
+| Sub-flow B 代码 | ✅ 已完成 (scripts/subflow_b_bemf.py) |
+| Sub-flow C 代码 | ✅ 已完成 (scripts/subflow_c_torque.py) |
+| Sub-flow D 代码 | ✅ 已完成 (scripts/subflow_d_efficiency_map.py) |
+| Sub-flow E 代码 | ✅ 已完成 (scripts/subflow_e_external.py) |
