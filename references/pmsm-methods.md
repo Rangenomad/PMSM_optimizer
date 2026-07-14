@@ -64,16 +64,26 @@ T_ripple = (T_max - T_min) / T_avg × 100%
 
 **求解器**: 批量 TransientXY (`5_Partial_motor_TR`)
 
-**方法**: (转速 × 扭矩) 二维网格扫描，每点一个电周期。估算 Id/Iq 工作点提取 4 张 MAP。
+**方法**: (转速 × 扭矩) 二维网格扫描。**电流 (Id, Iq) 由 MTPA 算法从目标扭矩生成**，而非经验系数估算。FEA 仅取 Moving1.Torque 单值，电参数用解析电压方程计算（因 PyAEDT gRPC 在加载 Transient 下只返回单值时点）。
 
-**关键公式**:
+**MTPA 算法** (`_mtpa_for_torque`):
 ```
-P_cu = 3 × Is² × Rs
-PF ≈ sign_correlation(v, i)
+IPM 扭矩方程:     T = 1.5·P·(Φ·Iq + (Ld-Lq)·Id·Iq)
+MTPA 轨迹:       Id = A - √(A² + Iq²)    其中 A = Φ / (2·(Lq-Ld))
+方法:           沿 MTPA 轨迹二分搜索 Iq, 使扭矩 = T_target
+```
+
+**关键公式** (解析电参数):
+```
+Vd = -ω·Lq·Iq,   Vq = ω·(Ld·Id+Φ),   Vs = √(Vd²+Vq²)
+PF = cos(arctan2(Vd,Vq) - arctan2(Id,Iq))
 M = Vs / (Vdc/√3)
+P_cu = 3 × (Is/√2)² × Rs
 ```
 
-**模块**: `scripts/subflow_d_efficiency_map.py` — `run(speed_min, speed_max, speed_steps, torque_steps, vdc, imax)`
+**输出**: 7 张 MAP（T_avg / η / M / PF / Vs / Is / β），每张 CSV 带行列标签
+
+**模块**: `scripts/subflow_d_efficiency_map.py` — `run(speed_min, speed_max, speed_steps, torque_steps, vdc, imax, Ld, Lq, Phi, Rs)`
 
 ---
 

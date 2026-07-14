@@ -201,12 +201,25 @@ elec_periods:   仿真电周期数 (默认 3)
 
 **求解器**: 批量 TransientXY (`5_Partial_motor_TR`)
 **原理**: (转速 × 扭矩) 二维网格扫描，每点跑一个电周期。
+        电流 (Id, Iq) 由 **MTPA 算法** 从目标扭矩生成，而非经验系数估算。
+
+**MTPA 算法** (`_mtpa_for_torque()`):
+```
+IPM 扭矩方程:  T = 1.5·P·(Φ·Iq + (Ld-Lq)·Id·Iq)
+MTPA 轨迹:     Id = A - √(A² + Iq²)   其中 A = Φ / (2·(Lq-Ld))
+```
+沿 MTPA 轨迹对 Iq 二分搜索匹配目标扭矩，确保每点工作在最优电流角。
 
 **实现要点**:
-1. 工作点反算：优先使用 Sub-flow A 的 Ld/Lq MAP 反算 (Id, Iq)；缺数据时使用线性近似估算
-2. 批量提交仿真（逐点或并行）
-3. 从每个工作点提取：相电流幅值 Is、铜损 Pcu=3×Is²×Rs、铁损（如果模型配置了铁损计算）、电压幅值 Vs、功率因数
-4. 计算调制比 M = Vs / (Vdc/√3)
+1. **MTPA 生成 Id/Iq**: `T_target → (Id, Iq, Is, β)` 沿 MTPA 轨迹二分搜索
+2. **FEA 扭矩验证**: 以 (Imax=Is, Thet_deg=-β) 设置 FEA 参数并求解，取 `Moving1.Torque` 单值平均值
+3. **解析电参数** (基于 MTPA 的 Id/Iq，无需 FEA 波形):
+   - Vs = √(Vd²+Vq²), Vd = -ω·Lq·Iq, Vq = ω·(Ld·Id+Φ)
+   - 调制比 M = Vs / (Vdc/√3)
+   - 功率因数 PF = cos(φv - φi)
+   - 铜损 Pcu = 3 × Is²/2 × Rs
+4. **gRPC 限制**: PyAEDT 0.25.1 gRPC 在加载 Transient (Imax>0) 下只返回单值时点 → 解析计算替代波形提取
+5. 复用同一 m2d 对象加速求解（避免每次开/关工程重创建网格）
 
 **输入参数**:
 ```
@@ -214,9 +227,10 @@ speed_min/max/steps:  转速网格
 torque_steps:         扭矩分点数
 vdc:                  直流母线电压 (V)
 imax:                 最大相电流 (A)
+Ld, Lq, Phi, Rs:      电机参数 (可传值覆盖默认)
 ```
 
-**输出**: 4 张 MAP（损耗 / Is / 功率因数 / 调制比），每张 CSV + 终端预览
+**输出**: 7 张 MAP（T_avg / η / M / PF / Vs / Is / β），每张 CSV + 终端预览
 
 ---
 
