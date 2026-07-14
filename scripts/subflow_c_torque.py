@@ -33,15 +33,16 @@ def _mtpa_scan(m2d, rated_speed, pole_pairs):
     best_T = -1e9
     best_angle = candidate_angles[0]
 
-    for angle in candidate_angles:
-        m2d['Thet_deg'] = f'{angle}°'
+    for idx, angle in enumerate(candidate_angles):
+        print(f'  [C-MTPA] {idx+1}/{len(candidate_angles)} 候选角 θ={angle}°, 正在求解...')
+        m2d['Thet_deg'] = str(angle)  # 不用 ° 后缀，gRPC 赋值第二次后静默失败
+        m2d.save_project()
         m2d.analyze('Setup1')
 
-        data = m2d.post.get_solution_data(
-            expressions=['Moving1.Torque'],
-            variations=m2d.post.get_solution_data_variation()
+        data = m2d.post.get_solution_data_per_variation(
+            expressions=['Moving1.Torque']
         )
-        torque = np.array(data.data('Moving1.Torque'))
+        torque = np.array(data.data_real('Moving1.Torque'))
         T_avg = np.mean(torque[-50:])  # 最后半周期平均
         print(f'    θ={angle:3d}° → T={T_avg:.2f} Nm')
 
@@ -65,21 +66,23 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3)
     # 设置负载和转速
     m2d['Imax'] = f'{rated_current}A'
     m2d['Speed_rpm'] = f'{rated_speed}rpm'
-    pole_pairs = float(m2d['PolePairs'])
+    pole_pairs = float(m2d['Poles']) / 2
 
     # MTPA 自动搜索（未指定电流角时）
     auto_mtpa = current_angle is None
     if auto_mtpa:
-        print('  未指定电流角, 正在搜索 MTPA 最优角...')
+        print('  [C] 未指定电流角, 正在搜索 MTPA 最优角...')
         current_angle = _mtpa_scan(m2d, rated_speed, pole_pairs)
 
-    m2d['Thet_deg'] = f'{current_angle}°'
+    m2d['Thet_deg'] = str(current_angle)  # 整数, 不用 ° 后缀
 
     # 完整仿真
     freq = rated_speed / 60 * pole_pairs
     stop_time = elec_periods / freq
     time_step = 1 / (freq * 200)  # 200 steps/period
 
+    print(f'[C] 步骤 1/3: 设置工况 Imax={rated_current}A, θ={current_angle}°, Speed={rated_speed}rpm')
+    print(f'[C] 步骤 2/3: 正在求解... (电频率 {freq:.1f}Hz, {elec_periods} 个电周期)')
     setup = m2d.setups[0]
     setup.props['StopTime'] = f'{stop_time}s'
     setup.props['TimeStep'] = f'{time_step}s'
@@ -87,12 +90,13 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3)
 
     m2d.analyze('Setup1')
 
+    print(f'[C] 步骤 3/3: 提取扭矩波形 + 纹波分析')
+
     # 提取扭矩波形
-    data = m2d.post.get_solution_data(
-        expressions=['Moving1.Torque'],
-        variations=m2d.post.get_solution_data_variation()
+    data = m2d.post.get_solution_data_per_variation(
+        expressions=['Moving1.Torque']
     )
-    torque = np.array(data.data('Moving1.Torque'))
+    torque = np.array(data.data_real('Moving1.Torque'))
 
     # 取最后一个周期的稳态数据
     steps_per_period = 200

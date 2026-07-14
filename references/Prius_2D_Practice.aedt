@@ -367,14 +367,14 @@ $begin 'AnsoftProject'
 				$end 'DatasetDefinitions'
 			$end 'DesignDatasets'
 			$begin 'Properties'
-				VariableProp('Poles', 'UD', '', '8')
+				VariableProp('Poles', 'UD', '', '8', oa(i=false, int=false, Min='4', Max='12', MinStep='0.08', MaxStep='0.8', MinFocus='4', MaxFocus='12', UseManufacturableValues='false', Level='[4: 12]'), sa(i=false, int=false, Min='4', Max='12', IDisp='0.8'), ta(i=false, int=false, Step='0.8', Min='4', Max='12'))
 				VariableProp('PolePairs', 'UD', '', 'Poles/2')
-				VariableProp('Speed_rpm', 'UD', '', '3000')
+				VariableProp('Speed_rpm', 'UD', '', '6000rpm', oa(i=false, int=false, Min='1500rpm', Max='4500rpm', MinStep='30rpm', MaxStep='300rpm', MinFocus='1500rpm', MaxFocus='4500rpm', UseManufacturableValues='false', Level='[1500: 4500]'), sa(i=false, int=false, Min='1500rpm', Max='4500rpm', IDisp='300rpm'), ta(i=false, int=false, Step='300rpm', Min='1500rpm', Max='4500rpm'))
 				VariableProp('Omega', 'UD', '', '360*speed_rpm*PolePairs/60')
 				VariableProp('Omega_rad', 'UD', '', 'Omega*pi/180')
-				VariableProp('Thet_deg', 'UD', '', '20')
+				VariableProp('Thet_deg', 'UD', '', '-37', oa(i=false, int=false, Min='10', Max='30', MinStep='0.2', MaxStep='2', MinFocus='10', MaxFocus='30', UseManufacturableValues='false', Level='[10: 30]'), sa(i=false, int=false, Min='10', Max='30', IDisp='2'), ta(i=false, int=false, Step='2', Min='10', Max='30'))
 				VariableProp('Thet', 'UD', '', 'thet_deg*pi/180')
-				VariableProp('Imax', 'UD', '', '250A')
+				VariableProp('Imax', 'UD', '', '203.03940504247A', oa(i=false, int=false, Min='125A', Max='375A', MinStep='2.5A', MaxStep='25A', MinFocus='125A', MaxFocus='375A', UseManufacturableValues='false', Level='[125: 375] A'), sa(i=false, int=false, Min='125A', Max='375A', IDisp='25A'), ta(i=false, int=false, Step='25A', Min='125A', Max='375A'))
 			$end 'Properties'
 			VariableOrders[8: 'Poles', 'PolePairs', 'Speed_rpm', 'Omega', 'Omega_rad', 'Thet_deg', 'Thet', 'Imax']
 			$begin 'Editor3D Doc Preferences'
@@ -390,7 +390,7 @@ $begin 'AnsoftProject'
 				Light3[4: 6710886, 0.200000002980232, 0.400000005960464, 1]
 				Ver=2
 			$end 'Editor3D Doc Preferences'
-			SnapMode=31
+			SnapMode=23
 			WorkingCS=1
 			$begin 'GeometryCore'
 				BlockVersionID=3
@@ -15151,7 +15151,7 @@ $begin 'AnsoftProject'
 					ParentBndID=-1
 					Type='Current'
 					IsSolid=false
-					Current='Imax*sin(Omega_rad*time+thet)'
+					Current='Imax*sin(Omega_rad*time+Thet)'
 					Resistance='1ohm'
 					Inductance='0mH'
 					Voltage='0V'
@@ -15164,7 +15164,7 @@ $begin 'AnsoftProject'
 					ParentBndID=-1
 					Type='Current'
 					IsSolid=false
-					Current='Imax*sin(Omega_rad*time-2*pi/3+thet)'
+					Current='Imax*sin(Omega_rad*time-2*pi/3+Thet)'
 					Resistance='0ohm'
 					Inductance='0mH'
 					Voltage='0V'
@@ -15177,7 +15177,7 @@ $begin 'AnsoftProject'
 					ParentBndID=-1
 					Type='Current'
 					IsSolid=false
-					Current='Imax*sin(Omega_rad*time+2*pi/3+thet)'
+					Current='Imax*sin(Omega_rad*time+2*pi/3+Thet)'
 					Resistance='1ohm'
 					Inductance='0mH'
 					Voltage='0V'
@@ -15304,8 +15304,8 @@ $begin 'AnsoftProject'
 					NonlinearSolverResidual='1e-06'
 					TimeIntegrationMethod=0
 					SmoothBHCurve=false
-					StopTime='20ms'
-					TimeStep='250us'
+					StopTime='0.0025s'
+					TimeStep='1.25e-05s'
 					OutputError=false
 					OutputPerObjectCoreLoss=false
 					OutputPerObjectSolidLoss=false
@@ -15347,10 +15347,10 @@ $begin 'AnsoftProject'
 					ID=0
 					SetupType='OptiParametric'
 					IsEnabled=true
-					NextUniqueID=1
+					NextUniqueID=196
 					MoveBackwards=false
 					GoalSetupVersion=0
-					Version=0
+					Version=195
 					$begin 'ProdOptiSetupDataV2'
 						SaveFields=true
 						CopyMesh=false
@@ -15385,6 +15385,7 @@ $begin 'AnsoftProject'
 			$begin 'PlotDefaults'
 				Default_SolutionId=92
 				Default_PlotFolder='Automatic'
+				Default_Time='0ns'
 			$end 'PlotDefaults'
 			$begin 'FieldsPlotManagerID'
 				NextUniqueID=2
@@ -15407,8 +15408,8 @@ $begin 'AnsoftProject'
 						minvalue=0
 						maxvalue=2.2
 						log=false
-						IntrinsicMin=0.00934809166938066
-						IntrinsicMax=3.32583403587341
+						IntrinsicMin=0.00277067395408981
+						IntrinsicMax=2.56084490829448
 						LimitFieldValuePrecision=false
 						FieldValuePrecisionDigits=4
 						dB=false
@@ -15431,12 +15432,12 @@ $begin 'AnsoftProject'
 						ArrowMapColor=true
 						ShowArrowTail=true
 						ArrowSize=0.25
-						ArrowMinMagnitude=1
-						ArrowMaxMagnitude=0
+						ArrowMinMagnitude=-0.499799960836188
+						ArrowMaxMagnitude=2.73976596759796
 						ArrowMagnitudeThreshold=0
 						ArrowMagnitudeFilteringFlag=false
-						ArrowMinIntrinsicMagnitude=0
-						ArrowMaxIntrinsicMagnitude=1
+						ArrowMinIntrinsicMagnitude=-0.49722932604591
+						ArrowMaxIntrinsicMagnitude=3.06084490829448
 					$end 'Arrow3DSettings'
 					$begin 'DeformScaleSettings'
 						ShowDeformation=true
@@ -15451,7 +15452,7 @@ $begin 'AnsoftProject'
 					PlotDefinitionType='Mesh_field_type'
 					PlotName='Mag_B1'
 					PlotDefinitionId=1
-					VersionID=16
+					VersionID=605
 					SolutionId=92
 					UserSpecifyName=0
 					UserSpecifyFolder=0
@@ -15509,6 +15510,22 @@ $begin 'AnsoftProject'
 							MoveBackwards=false
 							IDMap()
 						$end 'QuantityIDs'
+						SimValue('Moving1.Torque', 1, 125, false, SimValueID=3698, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InputVoltage(Phase_A)', 1, 67, false, SimValueID=3699, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InputCurrent(Phase_A)', 1, 76, false, SimValueID=3700, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('FluxLinkage(Phase_A)', 1, 152, false, SimValueID=3701, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_A)', 1, 67, false, SimValueID=3702, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_B)', 1, 67, false, SimValueID=3703, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_C)', 1, 67, false, SimValueID=3704, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('Current(Phase_A)', 1, 76, false, SimValueID=3705, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('FluxLinkage(Phase_A)', 1, 152, false, SimValueID=3706, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('FluxLinkage(Phase_B)', 1, 152, false, SimValueID=3707, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('FluxLinkage(Phase_C)', 1, 152, false, SimValueID=3708, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_A)', 1, 67, false, SimValueID=3709, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_B)', 1, 67, false, SimValueID=3710, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('InducedVoltage(Phase_C)', 1, 67, false, SimValueID=3711, 3, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('Moving1.LoadTorque', 1, 125, false, SimValueID=3712, 0, 0, 2, 0, false, false, -1, 1, 0, 1, 1, '', 0, 0)
+						SimValue('Mag_B', 1, 103, false, SimValueID=3713, 3, 0, 2, 0, false, false, 780, 1, 0, 1, 1, '', 0, 0)
 						$begin 'Sweeps'
 							$begin 'PostprocessSweep'
 								Variable='NormalizedDistance'
@@ -15548,8 +15565,48 @@ $begin 'AnsoftProject'
 							$end 'PostprocessSweep'
 							$begin 'Sweep'
 								Variable='Time'
-								Column=''
-								Units='s'
+								Column='0ns;242857.142857143ns;247500ns;250000ns;250000ns;300000ns;450000ns;500000ns;500000ns;502500.000000001ns;742857.142857143ns;750000ns;750000ns;997500.000000002ns;999999.999999999ns;1000000ns;1050000ns;1200000ns;1242857.14285714ns;1250000ns;1250000ns;1252500ns;1500000ns;1500000ns;1742857.14285714ns;1750000ns;1750000ns;1800000ns;1950000ns;1999999.99999999ns;2000000ns;2242857.14285715ns;2249999.99999999ns;2250000ns;2500000ns;2500000ns;2550000ns;2700000ns;2742857.14285716ns;2750000ns;2857142.85714286ns;3000000ns;3249999.99999999ns;3300000ns;3450000ns;3499999.99999999ns;3749999.99999999ns;3999999.99999999ns;4050000ns;4200000ns;4249999.99999999ns;4499999.99999999ns;4749999.99999999ns;4800000ns;4950000ns;4999999.99999998ns;5000000ns;5249999.99999998ns;5499999.99999998ns;5550000ns;5700000ns;5749999.99999998ns;5999999.99999998ns;6249999.99999998ns;6300000ns;6450000ns;6499999.99999997ns;6749999.99999997ns;6999999.99999997ns;7050000ns;7200000ns;7249999.99999997ns;7499999.99999997ns;7749999.99999997ns;7800000ns;7950000ns;7999999.99999997ns;8249999.99999998ns;8499999.99999999ns;8550000ns;8700000ns;8749999.99999999ns;9000000ns;9250000.00000001ns;9300000.00000001ns;9450000.00000001ns;9500000.00000001ns;9750000.00000002ns;10000000ns;10050000ns;10200000ns;10250000.0000001ns;10500000.0000001ns;10750000.0000001ns;10800000ns;10950000ns;11000000.0000001ns;11250000.0000001ns;11500000.0000001ns;11550000ns;11700000ns;11750000.0000001ns;12000000.0000001ns;12250000.0000001ns;12300000ns;12450000ns;12500000.0000001ns;12750000.0000001ns;13000000.0000001ns;13050000ns;13200000ns;13250000.0000001ns;13500000.0000001ns;13750000.0000001ns;13800000ns;13950000ns;14000000.0000002ns;14250000.0000002ns;14500000.0000002ns;14550000ns;14700000ns;14750000.0000002ns;15000000ns;15300000ns;15450000ns;15750000ns;16050000ns;16200000ns;16500000ns;16800000ns;16950000ns;17250000ns;17550000.0000001ns;17700000ns;18000000ns;18300000.0000001ns;18450000.0000001ns;18750000.0000001ns;19050000.0000001ns;19200000.0000001ns;19500000.0000001ns;19800000.0000001ns;19950000.0000001ns;30000000ns'
+								Units='ns'
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Poles'
+								Column='8'
+								Units=''
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='PolePairs'
+								Column='4'
+								Units=''
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Speed_rpm'
+								Column='500rpm;3000rpm;5250rpm;6000rpm;10000rpm'
+								Units='rpm'
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Omega'
+								Column='12000rpm;72000rpm;126000rpm;144000rpm;240000rpm'
+								Units='rpm'
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Omega_rad'
+								Column='209.43951023932rpm;1256.63706143592rpm;2199.11485751285rpm;2513.27412287183rpm;4188.79020478639rpm'
+								Units='rpm'
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Thet_deg'
+								Column='-60;-45;-37;-35;-32;-30;-25;-15;-0;20;30'
+								Units=''
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Thet'
+								Column='-1.0471975511966;-0.785398163397448;-0.645771823237902;-0.610865238198015;-0.558505360638185;-0.523598775598299;-0.436332312998582;-0.261799387799149;-0;0.349065850398866;0.523598775598299'
+								Units=''
+							$end 'Sweep'
+							$begin 'Sweep'
+								Variable='Imax'
+								Column='0A;117.924764150708A;200A;203.03940504247A;235.849528301415A;235.849528301415A;250A'
+								Units='A'
 							$end 'Sweep'
 						$end 'Sweeps'
 					$end 'SimDataExtractor'
@@ -29696,7 +29753,7 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(1966)
 					ParentBndID=-1
-					Current='1500A'
+					Current='6750A'
 					IsPositive=true
 				$end 'PhaseA1'
 				$begin 'PhaseA2'
@@ -29705,7 +29762,7 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(2431)
 					ParentBndID=-1
-					Current='1500A'
+					Current='6750A'
 					IsPositive=true
 				$end 'PhaseA2'
 				$begin 'PhaseB1'
@@ -29714,7 +29771,7 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(2008)
 					ParentBndID=-1
-					Current='-750A'
+					Current='-3375A'
 					IsPositive=true
 				$end 'PhaseB1'
 				$begin 'PhaseB2'
@@ -29723,7 +29780,7 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(2290)
 					ParentBndID=-1
-					Current='-750A'
+					Current='-3375A'
 					IsPositive=true
 				$end 'PhaseB2'
 				$begin 'PhaseC1'
@@ -29732,8 +29789,8 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(1988)
 					ParentBndID=-1
-					Current='-750A'
-					IsPositive=false
+					Current='-3375A'
+					IsPositive=true
 				$end 'PhaseC1'
 				$begin 'PhaseC2'
 					ID=8
@@ -29741,8 +29798,8 @@ $begin 'AnsoftProject'
 					IsComponent=false
 					Objects(2149)
 					ParentBndID=-1
-					Current='-750A'
-					IsPositive=false
+					Current='-3375A'
+					IsPositive=true
 				$end 'PhaseC2'
 			$end 'Boundaries'
 			$begin 'ProductSpecificData'
@@ -29944,11 +30001,11 @@ $begin 'AnsoftProject'
 					$begin 'Scale3DSettings'
 						unit=103
 						m_nLevels=15
-						minvalue=2.52009613177506e-05
-						maxvalue=2.23126173019409
+						minvalue=0.000470069879855387
+						maxvalue=2.99002681443917
 						log=false
-						IntrinsicMin=2.52009613177506e-05
-						IntrinsicMax=2.23126173019409
+						IntrinsicMin=0.000470069879855387
+						IntrinsicMax=2.99002681443917
 						LimitFieldValuePrecision=false
 						FieldValuePrecisionDigits=4
 						dB=false
@@ -29971,12 +30028,12 @@ $begin 'AnsoftProject'
 						ArrowMapColor=true
 						ShowArrowTail=true
 						ArrowSize=0.25
-						ArrowMinMagnitude=1
-						ArrowMaxMagnitude=0
+						ArrowMinMagnitude=-0.49998951844512
+						ArrowMaxMagnitude=3.01740648102289
 						ArrowMagnitudeThreshold=0
 						ArrowMagnitudeFilteringFlag=false
-						ArrowMinIntrinsicMagnitude=0
-						ArrowMaxIntrinsicMagnitude=1
+						ArrowMinIntrinsicMagnitude=-0.499529930120145
+						ArrowMaxIntrinsicMagnitude=3.49002681443917
 					$end 'Arrow3DSettings'
 					$begin 'DeformScaleSettings'
 						ShowDeformation=true
@@ -30003,8 +30060,8 @@ $begin 'AnsoftProject'
 						minvalue=1
 						maxvalue=1000000
 						log=true
-						IntrinsicMin=2.1263473033905
-						IntrinsicMax=1105601.75
+						IntrinsicMin=6.29371934142638
+						IntrinsicMax=1630603.49325349
 						LimitFieldValuePrecision=false
 						FieldValuePrecisionDigits=4
 						dB=false
@@ -30027,12 +30084,12 @@ $begin 'AnsoftProject'
 						ArrowMapColor=true
 						ShowArrowTail=false
 						ArrowSize=0.150000005960464
-						ArrowMinMagnitude=1
-						ArrowMaxMagnitude=0
-						ArrowMagnitudeThreshold=0
+						ArrowMinMagnitude=7.84095619053752
+						ArrowMaxMagnitude=1101509.40910151
+						ArrowMagnitudeThreshold=7.84095619053752
 						ArrowMagnitudeFilteringFlag=false
-						ArrowMinIntrinsicMagnitude=0
-						ArrowMaxIntrinsicMagnitude=1
+						ArrowMinIntrinsicMagnitude=5.79371934142638
+						ArrowMaxIntrinsicMagnitude=1630603.99325349
 					$end 'Arrow3DSettings'
 					$begin 'DeformScaleSettings'
 						ShowDeformation=true
@@ -30047,7 +30104,7 @@ $begin 'AnsoftProject'
 					PlotDefinitionType='Mesh_field_type'
 					PlotName='Mag_B1'
 					PlotDefinitionId=0
-					VersionID=14
+					VersionID=260
 					SolutionId=53
 					UserSpecifyName=0
 					UserSpecifyFolder=0
@@ -30083,7 +30140,7 @@ $begin 'AnsoftProject'
 					PlotDefinitionType='Mesh_field_type'
 					PlotName='H_Vector1'
 					PlotDefinitionId=2
-					VersionID=14
+					VersionID=260
 					SolutionId=53
 					UserSpecifyName=0
 					UserSpecifyFolder=0
@@ -30112,7 +30169,7 @@ $begin 'AnsoftProject'
 					PlotDefinitionType='Mesh_field_type'
 					PlotName='H_Vector2'
 					PlotDefinitionId=4
-					VersionID=4
+					VersionID=250
 					SolutionId=53
 					UserSpecifyName=0
 					UserSpecifyFolder=0
@@ -30148,7 +30205,7 @@ $begin 'AnsoftProject'
 					PlotDefinitionType='Mesh_field_type'
 					PlotName='Mag_B2'
 					PlotDefinitionId=5
-					VersionID=5
+					VersionID=251
 					SolutionId=53
 					UserSpecifyName=0
 					UserSpecifyFolder=0
@@ -30256,8 +30313,8 @@ $begin 'AnsoftProject'
 							$end 'PostprocessSweep'
 							$begin 'Sweep'
 								Variable='X'
-								Column='0'
-								Units=''
+								Column='0mm'
+								Units='mm'
 							$end 'Sweep'
 						$end 'Sweeps'
 					$end 'SimDataExtractor'
@@ -30268,8 +30325,8 @@ $begin 'AnsoftProject'
 				$begin 'Setup'
 					N='Setup1'
 					V=106
-					Soln(N='AdaptivePass', V=106)
-					Soln(N='LastAdaptive', V=106)
+					Soln(N='AdaptivePass', V=1167)
+					Soln(N='LastAdaptive', V=1167)
 				$end 'Setup'
 			$end 'Version ID Map'
 			$begin 'ID Map'
@@ -30299,7 +30356,6 @@ $begin 'AnsoftProject'
 		DesignEditor='TopLevel'
 		Refdes('8', 'U1')
 		Refdes('9', 'U2')
-		Refdes('10', 'U3')
 		$begin 'CompInstances'
 			$begin 'Compinst'
 				ID='8'
@@ -30335,7 +30391,7 @@ $begin 'AnsoftProject'
 				DesignInstanceID=32
 				$begin 'WindowPosition'
 					$begin 'EditorWindow'
-						Circuit(Editor3d(View('View Orientation Gadget'=1, WindowPos(5, -1, -1, -11, -45, 0, 0, 1333, 56), OrientationMatrix(0.0127279218286276, 8.81725525925248e-11, -4.70111970185538e-11, 0, -1.62503788203594e-10, 0.0127279218286276, -6.50015152814376e-10, 0, 0, 0, 0.0127279218286276, 0, -1.27279186248779, -0.899999976158142, -5.11176919937134, 1, 0, -3.62629747390747, 3.62629747390747, -1, 1, -2.68245887756348, 12.9059982299805), Drawings[20: 'Region', 'Stator', 'Band', 'Band_in', 'Rotor', 'PM1', 'PM2', 'Rotor2', 'PhaseC2', 'PhaseB2', 'PhaseC1', 'PhaseB1', 'PhaseA2', 'PhaseA1', 'Rotor3', 'Coils', 'Magnets', 'Rotor', 'Stator', 'CylindricalGap1'], 'View Data'('Render Mode'=1, 'Show Ruler'=1, 'Coordinate Systems View Mode'=1, 'CS Triad View Mode'=0, 'Render Facets'=1, GridVisible=1, GridAutoAdjust=1, GridAutoExtents=1, GridType='Rect', GridStyle='Line', NumPixels=30, dXForGrid=10, dYForGrid=10, dZForGrid=10, dRForGrid=10, dThetaForGrid=10), 'View Solution Context'('Solution ID'=92, 'View IntrinsicVar'='Time=\'-1s\''), ClipPlanes(ClipPlaneOptions(DisableWhenDrawingNewPlane=true, ForceOpqaueForUnclipped=false, ShowClipped=false, Transparency=0, HandleColor=16776960)))))
+						Circuit(Editor3d(View('View Orientation Gadget'=1, WindowPos(1, -1, -1, -11, -45, 0, 0, 202, 56), OrientationMatrix(0.0127279218286276, 8.81725525925248e-11, -4.70111970185538e-11, 0, -1.62503788203594e-10, 0.0127279218286276, -6.50015152814376e-10, 0, 0, 0, 0.0127279218286276, 0, -1.27279186248779, -0.899999976158142, -5.11176919937134, 1, 0, -3.62629747390747, 3.62629747390747, -1, 1, -2.68245887756348, 12.9059982299805), Drawings[20: 'Region', 'Stator', 'Band', 'Band_in', 'Rotor', 'PM1', 'PM2', 'Rotor2', 'PhaseC2', 'PhaseB2', 'PhaseC1', 'PhaseB1', 'PhaseA2', 'PhaseA1', 'Rotor3', 'Coils', 'Magnets', 'Rotor', 'Stator', 'CylindricalGap1'], 'View Data'('Render Mode'=1, 'Show Ruler'=1, 'Coordinate Systems View Mode'=1, 'CS Triad View Mode'=0, 'Render Facets'=1, GridVisible=1, GridAutoAdjust=1, GridAutoExtents=1, GridType='Rect', GridStyle='Line', NumPixels=30, dXForGrid=10, dYForGrid=10, dZForGrid=10, dRForGrid=10, dThetaForGrid=10), 'View Solution Context'('Solution ID'=92, 'View IntrinsicVar'='Time=\'-1s\''), ClipPlanes(ClipPlaneOptions(DisableWhenDrawingNewPlane=true, ForceOpqaueForUnclipped=false, ShowClipped=false, Transparency=0, HandleColor=16776960)))))
 					$end 'EditorWindow'
 				$end 'WindowPosition'
 				$begin 'ReportSetup'
@@ -30357,7 +30413,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=0
-									VersionID=2
+									VersionID=268
 									Name='Moving1.LoadTorque'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30456,7 +30512,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=1
-									VersionID=3
+									VersionID=269
 									Name='Moving1.Torque'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30559,7 +30615,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=3
-									VersionID=7
+									VersionID=986
 									Name='FluxLinkage(Phase_A)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30646,7 +30702,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=4
-									VersionID=8
+									VersionID=987
 									Name='FluxLinkage(Phase_B)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30733,7 +30789,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=5
-									VersionID=9
+									VersionID=988
 									Name='FluxLinkage(Phase_C)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30824,7 +30880,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=7
-									VersionID=13
+									VersionID=989
 									Name='InducedVoltage(Phase_A)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30911,7 +30967,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=8
-									VersionID=14
+									VersionID=990
 									Name='InducedVoltage(Phase_B)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -30998,7 +31054,7 @@ $begin 'AnsoftProject'
 										$end 'DESIGN_SOLUTION_SIM_VALUE_CONTEXT'
 									$end 'DesignSolnDefn'
 									ID=9
-									VersionID=15
+									VersionID=991
 									Name='InducedVoltage(Phase_C)'
 									TieNameToExpr=true
 									$begin 'Components'
@@ -31074,10 +31130,10 @@ $begin 'AnsoftProject'
 								$end 'TraceDef'
 							$end 'XY Plot 2'
 						$end 'Reports'
-						NextUniqueID=11
+						NextUniqueID=13
 						MoveBackwards=false
 						$begin 'NextVersID'
-							NextUniqueID=16
+							NextUniqueID=992
 							MoveBackwards=false
 						$end 'NextVersID'
 					$end 'ReportManager'
@@ -34374,7 +34430,7 @@ $begin 'AnsoftProject'
 				DesignInstanceID=35
 				$begin 'WindowPosition'
 					$begin 'EditorWindow'
-						Circuit(Editor3d(View('View Orientation Gadget'=1, WindowPos(3, -1, -1, -11, -45, 0, 0, 1333, 56), OrientationMatrix(0.0127279218286276, -7.43312425499632e-11, -4.70112039574477e-11, 0, 1.37246464193552e-10, 0.0127279218286276, -1.09797171354842e-09, 0, -2.74492928387104e-10, 5.48985856774209e-10, 0.0127279218286276, 0, -1.27279222011566, -0.899999916553497, -5.11176919937134, 1, 0, -2.447105884552, 2.447105884552, -1, 1, -2.68245887756348, 12.9059982299805), Drawings[15: 'Region', 'Stator', 'Rotor', 'PM1', 'PM2', 'PhaseC2', 'PhaseB2', 'PhaseC1', 'PhaseB1', 'PhaseA2', 'PhaseA1', 'airgap_arc', 'Rotor', 'Magnets', 'SA_Stator'], 'View Data'('Render Mode'=1, 'Show Ruler'=1, 'Coordinate Systems View Mode'=1, 'CS Triad View Mode'=0, 'Render Facets'=1, GridVisible=1, GridAutoAdjust=1, GridAutoExtents=1, GridType='Rect', GridStyle='Line', NumPixels=30, dXForGrid=10, dYForGrid=10, dZForGrid=10, dRForGrid=10, dThetaForGrid=10), ClipPlanes(ClipPlaneOptions(DisableWhenDrawingNewPlane=true, ForceOpqaueForUnclipped=false, ShowClipped=false, Transparency=0, HandleColor=16776960)))))
+						Circuit(Editor3d(View('View Orientation Gadget'=1, WindowPos(5, -1, -1, -11, -45, 0, 0, 202, 56), OrientationMatrix(0.0127279218286276, -7.43312425499632e-11, -4.70112108963416e-11, 0, 1.37246464193552e-10, 0.0127279218286276, -1.09797171354842e-09, 0, -2.74492928387104e-10, 5.48985856774209e-10, 0.0127279218286276, 0, -1.27279222011566, -0.899999916553497, -5.11176919937134, 1, 0, -3.62629747390747, 3.62629747390747, -1, 1, -2.68245887756348, 12.9059982299805), Drawings[15: 'Region', 'Stator', 'Rotor', 'PM1', 'PM2', 'PhaseC2', 'PhaseB2', 'PhaseC1', 'PhaseB1', 'PhaseA2', 'PhaseA1', 'airgap_arc', 'Rotor', 'Magnets', 'SA_Stator'], 'View Data'('Render Mode'=1, 'Show Ruler'=1, 'Coordinate Systems View Mode'=1, 'CS Triad View Mode'=0, 'Render Facets'=1, GridVisible=1, GridAutoAdjust=1, GridAutoExtents=1, GridType='Rect', GridStyle='Line', NumPixels=30, dXForGrid=10, dYForGrid=10, dZForGrid=10, dRForGrid=10, dThetaForGrid=10), ClipPlanes(ClipPlaneOptions(DisableWhenDrawingNewPlane=true, ForceOpqaueForUnclipped=false, ShowClipped=false, Transparency=0, HandleColor=16776960)))))
 					$end 'EditorWindow'
 				$end 'WindowPosition'
 				$begin 'ReportSetup'
@@ -34594,7 +34650,7 @@ C0fRrXR/EviCFvDGq3EU+mNJFcabcWdzPHYX732lacAf0S0UUUAFFFFABRRRQB//9k='
 		DesignName='5_Partial_motor_TR'
 		Notes=''
 		Factory='Maxwell 2D'
-		IsSolved=false
+		IsSolved=true
 		'Nominal Setups'[1: 'Setup1']
 		'Nominal Setup Types'[1: '']
 		'Optimetrics Setups'[1: 'ParametricSetup1']
@@ -34920,7 +34976,7 @@ RRQAUUUUAf/2Q=='
 		DesignName='4_Partial_motor_MS2'
 		Notes=''
 		Factory='Maxwell 2D'
-		IsSolved=false
+		IsSolved=true
 		'Nominal Setups'[1: 'Setup1']
 		'Nominal Setup Types'[1: '']
 		'Optimetrics Setups'[0:]

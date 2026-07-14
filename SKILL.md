@@ -40,43 +40,41 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 | 模板文件 | `references/Prius_2D_Practice.aedt` | 用户预先配置好的 PMSM 模型 |
 | 工作模式 | `non_graphical=False` | 图形模式，用户可实时查看 |
 | 会话模式 | `new_desktop=False, close_on_exit=False` | 复用已有 AEDT 会话 |
-| 求解器选择 | 根据子流程自动选择 | Magnetostatic / Transient |
+| 求解器选择 | 根据子流程自动选择 | Sub-flow A → `4_Partial_motor_MS2` (Magnetostatic) |
+|  |  | Sub-flow B/C/D → `5_Partial_motor_TR` (Transient) |
 
 ### 执行代码
 
-```bash
-# 复制模板到工作目录
-cp references/Prius_2D_Practice.aedt ./pmsm_working.aedt
-
-python << 'EOF'
+```python
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
+from pathlib import Path
 from ansys.aedt.core import Maxwell2d
-import subprocess
 
+ROOT = Path(__file__).resolve().parent if '__file__' in dir() else Path.cwd()
+TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+
+# Sub-flow A: Magnetostatic
 m2d = Maxwell2d(
-    project="pmsm_working",
-    design="Maxwell2DDesign1",
-    solution_type="MagnetostaticXY",   # 先以 Magnetostatic 打开，后续切换
+    project=TEMPLATE,
+    design="4_Partial_motor_MS2",
+    solution_type="MagnetostaticXY",
     non_graphical=False,
     new_desktop=False,
     close_on_exit=False
 )
 
-# 将 AEDT 窗口置前
-try:
-    subprocess.run(
-        ['powershell', '-Command',
-         '$wshell = New-Object -ComObject wscript.shell; $wshell.AppActivate("Ansys Electronics Desktop")'],
-        capture_output=True, timeout=5
-    )
-except Exception:
-    pass
+# 或 Sub-flow B/C/D: Transient
+# m2d = Maxwell2d(
+#     project=TEMPLATE,
+#     design="5_Partial_motor_TR",
+#     solution_type="TransientXY",
+#     ...
+# )
 
 print(f"Project: {m2d.project_name}")
 print(f"Design:  {m2d.design_name}")
 print("模板项目加载完成")
-EOF
 ```
 
 ---

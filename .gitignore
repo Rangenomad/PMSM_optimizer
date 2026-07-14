@@ -26,3 +26,6 @@ build/
 # 鎴浘 (涓存椂)
 *.png
 *.jpg
+
+# 生成结果
+results/

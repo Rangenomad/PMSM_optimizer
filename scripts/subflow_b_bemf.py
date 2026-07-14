@@ -1,6 +1,6 @@
 """Sub-flow B: 空载反电势 (Back EMF)
 求解器: TransientXY (5_Partial_motor_TR)
-方法: Imax=0 空载, 额定转速旋转, 提取三相电压波形 + FFT
+方法: Imax=0 空载, 额定转速旋转, 提取三相感应电压波形 + FFT
 
 用法:
     python -c "from scripts.subflow_b_bemf import run; run(rated_speed=3000)"
@@ -15,17 +15,6 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 
-def compute_thd(signal):
-    """计算 THD (Total Harmonic Distortion)"""
-    fft_vals = np.fft.rfft(signal)
-    fft_mag = np.abs(fft_vals)
-    fundamental = fft_mag[1] if len(fft_mag) > 1 else fft_mag[0]
-    if fundamental == 0:
-        return 0
-    harmonics = np.sqrt(np.sum(fft_mag[2:] ** 2))
-    return harmonics / fundamental * 100
-
-
 def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=200):
     from ansys.aedt.core import Maxwell2d
 
@@ -35,48 +24,58 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=200):
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
 
+    print(f'[B] 步骤 1/4: 设置空载工况 Imax=0, Speed={rated_speed}rpm')
     # 设置空载 (Imax=0) 和转速
     m2d['Imax'] = '0A'
     m2d['Speed_rpm'] = f'{rated_speed}rpm'
 
-    # 计算仿真时间
-    pole_pairs = float(m2d['PolePairs'])
+    # 计算仿真时间 (PolePairs = Poles/2)
+    pole_pairs = float(m2d['Poles']) / 2
     freq = rated_speed / 60 * pole_pairs  # 电频率 (Hz)
     stop_time = elec_periods / freq
     time_step = 1 / (freq * time_steps_per_cycle)
 
     # 更新求解设置
+    print(f'[B] 步骤 2/4: 更新求解设置 (StopTime={stop_time:.4f}s, TimeStep={time_step:.6f}s)')
     setup = m2d.setups[0]
     setup.props['StopTime'] = f'{stop_time}s'
     setup.props['TimeStep'] = f'{time_step}s'
     setup.update()
 
+    print(f'[B] 步骤 3/4: 正在求解... (电频率 {freq:.1f} Hz, {elec_periods} 个电周期)')
     m2d.analyze('Setup1')
 
-    # 提取三相电压波形
-    data = m2d.post.get_solution_data(
-        expressions=['Voltage(Phase_A)', 'Voltage(Phase_B)', 'Voltage(Phase_C)'],
-        variations=m2d.post.get_solution_data_variation()
+    print(f'[B] 步骤 4/4: 提取结果 + FFT 分析')
+    # 提取三相感应电压 (InducedVoltage)
+    data = m2d.post.get_solution_data_per_variation(
+        expressions=['InducedVoltage(Phase_A)', 'InducedVoltage(Phase_B)', 'InducedVoltage(Phase_C)']
     )
 
-    time_vals = np.array(data.data('Time'))
-    va = np.array(data.data('Voltage(Phase_A)'))
-    vb = np.array(data.data('Voltage(Phase_B)'))
-    vc = np.array(data.data('Voltage(Phase_C)'))
+    # Transient 主扫描轴为 Time (单位: ns)
+    time_ns = np.array(data.primary_sweep_values, dtype=float)
+    time_vals = time_ns * 1e-9  # 转换为秒
+    va = np.array(data.data_real('InducedVoltage(Phase_A)')) / 1000  # mV → V
+    vb = np.array(data.data_real('InducedVoltage(Phase_B)')) / 1000
+    vc = np.array(data.data_real('InducedVoltage(Phase_C)')) / 1000
 
-    # FFT 分析
-    fs = 1.0 / time_step
+    # FFT 分析 (一次性计算, 避免重复 FFT)
     results = {}
     for name, v in [('A', va), ('B', vb), ('C', vc)]:
         fft_vals = np.fft.rfft(v)
         fft_mag = np.abs(fft_vals)
-        n = len(fft_vals)
         freqs = np.fft.rfftfreq(len(v), d=time_step)
 
-        # 基波幅值 (第一个非直流分量)
+        # 基波幅值 (找峰值, 排除 DC)
         fundamental_idx = np.argmax(fft_mag[1:]) + 1
-        fundamental_mag = fft_mag[fundamental_idx] * 2 / len(v)
-        thd = compute_thd(v)
+        fundamental_raw = fft_mag[fundamental_idx]
+        fundamental_mag = fundamental_raw * 2 / len(v)
+
+        # THD: 排除 DC(索引0) 和基波, 其余均为谐波
+        mask = np.ones(len(fft_mag), dtype=bool)
+        mask[0] = False       # 排除 DC
+        mask[fundamental_idx] = False  # 排除基波
+        harmonics = np.sqrt(np.sum(fft_mag[mask] ** 2))
+        thd = harmonics / fundamental_raw * 100
 
         results[name] = {
             'fundamental': fundamental_mag,
