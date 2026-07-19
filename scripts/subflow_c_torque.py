@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+_DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 
 def _mtpa_scan(m2d, rated_speed, pole_pairs):
@@ -59,17 +59,26 @@ def _mtpa_scan(m2d, rated_speed, pole_pairs):
     return best_angle
 
 
-def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3):
+def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3, project_path=None):
+    from scripts.project_utils import get_template_path
+    from scripts.param_guard import check_var
     from ansys.aedt.core import Maxwell2d
 
+    if project_path:
+        template = get_template_path(Path(project_path))
+    else:
+        template = _DEFAULT_TEMPLATE
+
     m2d = Maxwell2d(
-        project=TEMPLATE, design='5_Partial_motor_TR',
+        project=template, design='5_Partial_motor_TR',
         solution_type='TransientXY',
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
 
     # 设置负载和转速
+    check_var('Imax', 'C')
     m2d['Imax'] = f'{rated_current}A'
+    check_var('Speed_rpm', 'C')
     m2d['Speed_rpm'] = f'{rated_speed}rpm'
     pole_pairs = float(m2d['Poles']) / 2
 
@@ -79,6 +88,7 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3)
         print('  [C] 未指定电流角, 正在搜索 MTPA 最优角...')
         current_angle = _mtpa_scan(m2d, rated_speed, pole_pairs)
 
+    check_var('Thet_deg', 'C')
     m2d['Thet_deg'] = str(current_angle)  # 整数, 不用 ° 后缀
 
     # 完整仿真
