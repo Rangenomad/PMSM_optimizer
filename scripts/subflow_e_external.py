@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 
 
 def run(vdc=300, imax=250, speed_max=12000, rs=0.0, speed_points_n=20, pole_pairs=4,
-        ld_lq_data=None, phi=None):
+        ld_lq_data=None, phi=None, project_path=None):
     """
     Parameters
     ----------
