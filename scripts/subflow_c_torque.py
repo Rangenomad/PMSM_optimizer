@@ -27,7 +27,7 @@ def _mtpa_scan(m2d, rated_speed, pole_pairs):
     # 粗网格: 100 步/周期
     setup = m2d.setups[0]
     setup.props['StopTime'] = f'{1/freq}s'
-    setup.props['TimeStep'] = f'{1/(freq*100)}s'
+    setup.props['TimeStep'] = f'{1/(freq*50)}s'
     setup.update()
 
     best_T = -1e9
@@ -43,7 +43,12 @@ def _mtpa_scan(m2d, rated_speed, pole_pairs):
             expressions=['Moving1.Torque']
         )
         torque = np.array(data.data_real('Moving1.Torque'))
-        T_avg = np.mean(torque[-50:])  # 最后半周期平均
+        time_vals = np.array(data.primary_sweep_values)
+        dt_actual = np.mean(np.diff(time_vals))
+        steps_per_period_actual = int(round((1/freq) / dt_actual))
+        # 最后半周期稳态平均
+        half_period = max(steps_per_period_actual // 2, 1)
+        T_avg = np.mean(torque[-half_period:])
         print(f'    θ={angle:3d}° → T={T_avg:.2f} Nm')
 
         if T_avg > best_T:
@@ -79,7 +84,7 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3)
     # 完整仿真
     freq = rated_speed / 60 * pole_pairs
     stop_time = elec_periods / freq
-    time_step = 1 / (freq * 200)  # 200 steps/period
+    time_step = 1 / (freq * 50)  # 50 steps/period
 
     print(f'[C] 步骤 1/3: 设置工况 Imax={rated_current}A, θ={current_angle}°, Speed={rated_speed}rpm')
     print(f'[C] 步骤 2/3: 正在求解... (电频率 {freq:.1f}Hz, {elec_periods} 个电周期)')
@@ -97,10 +102,18 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3)
         expressions=['Moving1.Torque']
     )
     torque = np.array(data.data_real('Moving1.Torque'))
+    time_vals = np.array(data.primary_sweep_values)  # 实际时间轴
 
-    # 取最后一个周期的稳态数据
-    steps_per_period = 200
-    steady_torque = torque[-steps_per_period:]
+    # 根据实际时间步计算每周期步数（更可靠，不依赖预设值）
+    dt_actual = np.mean(np.diff(time_vals))  # 实际时间步长
+    T_period = 1 / freq                     # 电周期
+    steps_per_period_actual = int(round(T_period / dt_actual))
+
+    # 取最后一个完整周期的稳态数据
+    if len(torque) >= steps_per_period_actual:
+        steady_torque = torque[-steps_per_period_actual:]
+    else:
+        steady_torque = torque  # 数据不足时全部使用
 
     avg_torque = np.mean(steady_torque)
     max_torque = np.max(steady_torque)

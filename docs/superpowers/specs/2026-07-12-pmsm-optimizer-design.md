@@ -73,6 +73,35 @@
 
 ---
 
+## Transient 求解器公共配置
+
+所有基于 `5_Partial_motor_TR` (TransientXY) 的子流程使用统一的时间参数配置规则。
+
+### 公式
+
+```
+freq        = Speed_rpm / 60 × PolePairs      (Hz, 电频率)
+StopTime    = elec_periods / freq              (s, N 个完整电周期)
+TimeStep    = 1 / (freq × steps_per_period)    (s, 每电周期固定步数)
+```
+
+### 各子流程参数
+
+| 子流程 | elec_periods | steps_per_period | 说明 |
+|--------|-------------|-----------------|------|
+| B (空载反电势) | 2~3 | 50 | 多周期 FFT 分析 |
+| C MTPA 候选角扫描 | 1 | 50 | 快速筛选 |
+| C 精确结算 | 3 | 50 | 稳态波形 + 脉动率 |
+| D (效率 MAP) | 1 | 50 | 单周期取平均扭矩 |
+
+### 物理含义
+
+- **每工况点固定计算 N 个电周期**，不因转速变化而增加步数。转速高则 StopTime 和 TimeStep 同比例缩短，计算量恒定。
+- 电磁转矩纹波频率为 6× 电频率，50 步/周期下每个纹波周期约 8 步，可分辨平均值和粗略脉动率。
+- Sub-flow D 只取平均扭矩，elec_periods=1 最小化求解时间。
+
+---
+
 ## 子流程设计
 
 ### Sub-flow A：Ld/Lq MAP + 主磁链 Φ
@@ -92,39 +121,53 @@ PhaseC: PhaseC1(9匝, 串联) + PhaseC2(9匝, 串联), 1并联支路
 
 **实现要点**:
 
-1. Magnetostatic 求解器不支持 Winding Group 激励 → 需要用 `assign_current()` 直接设置电流
+1. Magnetostatic 求解器不支持 Winding Group 激励 → 需要用 Current 边界设定电流
 
-2. **电流变换（Id/Iq → Ia/Ib/Ic → 匝数放大）**：
+2. **gRPC 兼容**：`assign_current()` 在 gRPC 下不稳定，改用 `boundary.update()` 修改已有 Current 边界对象的 `Current` / `IsPositive` 属性值。
+
+3. **转子位置标定 + 主磁链 Φ 测量（零电流点）**：
+   在扫描开始前先求解一个零电流点，从三相磁链中反算转子实际 d 轴位置：
    ```
-   d 轴与 A 相对齐（θ=0°）：
+   ψa, ψb, ψc ← 零电流 Matrix 导出
+   ψα = 2/3·(ψa - 0.5·ψb - 0.5·ψc)              (Clarke 变换)
+   ψβ = 2/3·(√3/2·ψb - √3/2·ψc)
+   θr = atan2(ψβ, ψα)                              (转子 d 轴电角度)
+   Φ  = |ψαβ|                                       (永磁磁链幅值)
+   ```
+   **原因**：转子初始位置不一定是 0°，使用实测 θr 做 Park 变换可避免 d/q 轴分量串扰。
+
+4. **电流变换（Id/Iq → Ia/Ib/Ic → 匝数放大）**（使用实测转子角度 θr）：
+   ```
+   Iα = Id·cos(θr) - Iq·sin(θr)
+   Iβ = Id·sin(θr) + Iq·cos(θr)
+   Ia = Iα
+   Ib = -0.5·Iα + 0.866·Iβ
+   Ic = -0.5·Iα - 0.866·Iβ
    
-   Ia =  Id
-   Ib = -0.5*Id + 0.866*Iq  
-   Ic = -0.5*Id - 0.866*Iq
-   
-   # assign_current 设置的是总 MMF，每线圈代表 9 匝
-   assign_current('PhaseA1', current=9*Ia)
-   assign_current('PhaseA2', current=9*Ia)
-   assign_current('PhaseB1', current=9*Ib)
-   assign_current('PhaseB2', current=9*Ib)
-   assign_current('PhaseC1', current=9*Ic)
-   assign_current('PhaseC2', current=9*Ic)
+   每个 coil 对象代表 9 匝 → 设定电流 = 9 × Ia/Ib/Ic
    ```
 
-3. 求解后提取三相磁链，需乘匝数得到总磁链：
+5. **磁链提取**：因 gRPC 下 `get_solution_data()` 的 `FluxLinkage()` 表达式不稳定，改用 `export_matrix('Matrix1', file)` 导出矩阵结果，从 .txt 文件中解析每线圈的 Flux Linkage 值。
+
+6. 磁链汇总（乘匝数）：
    ```python
-   psi_a = 9 * (FluxLinkage(PhaseA1) + FluxLinkage(PhaseA2))
-   psi_b = 9 * (FluxLinkage(PhaseB1) + FluxLinkage(PhaseB2))
-   psi_c = 9 * (FluxLinkage(PhaseC1) + FluxLinkage(PhaseC2))
+   psi_a = 9 * (psi_coil['PhaseA1'] + psi_coil['PhaseA2'])
+   psi_b = 9 * (psi_coil['PhaseB1'] + psi_coil['PhaseB2'])
+   psi_c = 9 * (psi_coil['PhaseC1'] + psi_coil['PhaseC2'])
    ```
 
-4. Park 变换将三相磁链转为 d/q 轴分量（θ=0°）：
+7. Park 变换将三相磁链转为 d/q 轴分量（使用实测转子角度 θr）：
    ```python
-   psi_d =  2/3 * (psi_a*cos(0) + psi_b*cos(-2π/3) + psi_c*cos(+2π/3))  =  2/3*(psi_a - 0.5*psi_b - 0.5*psi_c)
-   psi_q = -2/3 * (psi_a*sin(0) + psi_b*sin(-2π/3) + psi_c*sin(+2π/3))  =  2/3*(0.866*psi_b - 0.866*psi_c)
+   psi_d = 2/3·(ψa·cos(θr) + ψb·cos(θr-120°) + ψc·cos(θr+120°))
+   psi_q = -2/3·(ψa·sin(θr) + ψb·sin(θr-120°) + ψc·sin(θr+120°))
    ```
 
-5. Ld = Ψd/Id, Lq = Ψq/Iq（Id, Iq ≠ 0 时）
+8. **扣除永磁磁链计算 Ld/Lq**（Id, Iq ≠ 0 时）：
+   ```
+   Ld = (Ψd - Φ) / Id     — 扣除永磁磁链，仅剩电枢反应贡献
+   Lq = Ψq / Iq            — PM 在 q 轴无贡献，无需扣除
+   ```
+   > 文献 [1] 标准做法是 Ld = (Ψd(Id,Iq) - Ψd(0,Iq))/Id 以计入交叉饱和，当前使用固定 Φ = Ψd(0,0) 简化处理 [3]。
 
 **输入参数**:
 ```
@@ -146,15 +189,23 @@ angle_steps:   电流角分点数 (0-90°)
 **实现要点**:
 1. 设置 `Imax=0`（通过变量），绕组不贡献磁场
 2. 设置 `Speed_rpm` 到用户指定转速
-3. 求解 2-3 个电周期
-4. 提取三相感应电压 `Voltage(Phase_A)`, `Voltage(Phase_B)`, `Voltage(Phase_C)`
-5. FFT 分析基波幅值和 THD
+3. **时间配置**: Transient 公共配置 (elec_periods=2~3, steps_per_period=50)
+4. **求解 & 数据提取**（gRPC 兼容 API）：
+   - 使用 `get_solution_data_per_variation()`（非 `get_solution_data()`）
+   - 表达式：`'InducedVoltage(Phase_A)'`（三相）
+   - 数据读取：`data.data_real('InducedVoltage(Phase_A)')` → 返回 **mV**，需 `/1000` 转 V
+   - 时间轴：`data.primary_sweep_values` → 返回 **ns**，需 `×1e-9` 转 s
+5. **FFT 分析**（Python numpy）：
+   - `np.fft.rfft()` 计算幅值谱，`2/N` 幅值校正
+   - 基波幅值：DC（索引 0）后最大峰值
+   - THD：`√(Σ|Hk|²) / |H1|`，k ≥ 2（排除 DC 和基波）
+6. 线反电势常数：`Ke_line = V_fund × √3 / (Speed_rpm/1000)` V/(krpm)
 
 **输入参数**:
 ```
 rated_speed:           额定转速 (rpm)
 elec_periods:          仿真电周期数 (默认 2)
-time_steps_per_cycle:  每周期步数 (默认 200)
+time_steps_per_cycle:  每周期步数 (默认 50)
 ```
 
 **输出**: 三相 BEMF 波形 + 基波幅值 + THD + 线反电势常数 Ke (V/krpm)
@@ -165,6 +216,7 @@ time_steps_per_cycle:  每周期步数 (默认 200)
 
 **求解器**: TransientXY (`5_Partial_motor_TR`)
 **原理**: 额定负载、额定转速，仿真一个完整电周期。
+**时间配置**: Transient 公共配置 (elec_periods=1~3, steps_per_period=50)
 
 **电流角说明**：
 ```
@@ -178,12 +230,13 @@ IPM 电机 MTPA 通常在 -20° ~ -45°（负 Id，利用磁阻转矩）
 **实现要点**:
 1. 设置 `Imax` 到额定电流，`Speed_rpm` 到额定转速
 2. **MTPA 自动搜索**（用户未指定电流角时）：
-   - 以粗网格（≈200 步/周期）跑 5-6 个候选角的短仿真（1 个电周期）
+   - 以粗网格（50 步/周期）跑 6 个候选角的短仿真（1 个电周期）
    - 候选角：`[0, -15, -25, -35, -45, -60]` 度
-   - 提取每个角的平均扭矩，选扭矩最大的角度
+   - 每角设置 `m2d['Thet_deg'] = str(angle)`（**无 `°` 后缀**，gRPC 下带 `°` 后缀第二次赋值后静默失败）
+   - 提取 Moving1.Torque，取**最后半周期平均**（`torque[-half_period:]`），选扭矩最大的角度
    - 如果 Sub-flow A 的 Ld/Lq/Φ 数据可用，用 MTPA 公式直接算最优角（跳过 FEA 扫描）
-3. 以 MTPA 角（或用户指定角）跑完整仿真（3 个电周期）
-4. 取最后一个周期稳态数据，提取 `Moving1.Torque` 波形
+3. 以 MTPA 角（或用户指定角）跑完整仿真（3 个电周期，50 步/周期）
+4. 取最后一个完整电周期的 `Moving1.Torque` 稳态数据，计算平均值和峰峰值脉动率
 
 **输入参数**:
 ```
@@ -201,6 +254,7 @@ elec_periods:   仿真电周期数 (默认 3)
 
 **求解器**: 批量 TransientXY (`5_Partial_motor_TR`)
 **原理**: (转速 × 扭矩) 二维网格扫描，每点跑一个电周期。
+**时间配置**: Transient 公共配置 (elec_periods=1, steps_per_period=50)
         电流 (Id, Iq) 由 **MTPA 算法** 从目标扭矩生成，而非经验系数估算。
 
 **MTPA 算法** (`_mtpa_for_torque()`):
@@ -230,7 +284,19 @@ imax:                 最大相电流 (A)
 Ld, Lq, Phi, Rs:      电机参数 (可传值覆盖默认)
 ```
 
-**输出**: 7 张 MAP（T_avg / η / M / PF / Vs / Is / β），每张 CSV + 终端预览
+**输出**: 7 张 MAP（T_avg / η / M / PF / Vs / Is / β），每张 CSV 带行列标签 + 终端预览
+
+CSV 文件格式（`results/` 目录）：
+```
+torque_map.csv       # 列: 扭矩目标值, 行: 转速, 值: FEA 扭矩 (Nm)
+efficiency_map.csv   # 列: 扭矩目标值, 行: 转速, 值: 效率 (%)
+modulation_map.csv   # 列: 扭矩目标值, 行: 转速, 值: 调制比 M
+pf_map.csv           # 列: 扭矩目标值, 行: 转速, 值: 功率因数 PF
+voltage_map.csv      # 列: 扭矩目标值, 行: 转速, 值: 相电压 Vs (V)
+current_map.csv      # 列: 扭矩目标值, 行: 转速, 值: 电流 Is (A)
+beta_map.csv         # 列: 扭矩目标值, 行: 转速, 值: 电流角 β (°)
+```
+每 CSV 首行为 `#` 注释头，次行为列标签，后续每行为转速行 + CSV 数值。
 
 ---
 
@@ -273,13 +339,48 @@ speed_points_n: 转速分点数 (默认 20)
 ## 执行流程
 
 ```
-用户指令 → Step 0: 确认模式 (auto/confirm)
-         → Step 1: 连接模板项目
-         → Step 2: 修改参数 (可选)
+用户指令 → [新增] Step -1: 需求澄清
+         → [新增] Step 0: 创建项目文件夹，拷贝模板到项目目录
+         → [新增] Step 0a: 确认模式 (auto/confirm)
+         → Step 1: 打开项目模板（项目文件夹中的副本）
+         → Step 2: 修改参数 (仅限白名单内参数)
          → Step 3: 判定需求 → 映射子流程
          → 执行子流程 (A/B/C/D/E)
          → 输出结果
 ```
+
+### 项目隔离机制（Step -1 & Step 0）
+
+为防止模板文件被污染，加入项目文件夹机制：
+
+- **Step -1 需求澄清**：与用户确认计算目标和参数范围
+- **Step 0 创建项目**：
+  1. 在 `pmsm_projects/` 下以 `YYYY-MM-DD_<描述>` 格式创建项目文件夹
+  2. 使用 `shutil.copy2()` 将 `references/Prius_2D_Practice.aedt` 复制到项目目录
+  3. 所有后续操作基于副本进行，原始模板不被修改
+  4. 项目文件夹内生成 `project.json`（创建时间、参数配置）
+
+### 参数权限管控（Step 2 约束）
+
+AI 只能调节与当前仿真任务相关的必要参数，禁止修改全局参数。
+
+**各子流程允许参数：**
+
+| 子流程 | 允许修改 | 说明 |
+|--------|---------|------|
+| A (Ld/Lq MAP) | `Imax` | Thet_deg 由脚本内部 Id/Iq→abc 控制 |
+| B (反电势) | `Speed_rpm` | Imax 脚本自动设为 0 |
+| C (额定扭矩) | `Imax`, `Speed_rpm`, `Thet_deg` | |
+| D (效率 MAP) | `Speed_rpm`, `Imax`, `Thet_deg` | 脚本内部 MTPA 控制 Id/Iq |
+| E (外特性) | 无（纯数学计算） | 全部通过函数参数传入 |
+
+**全局禁止修改（所有子流程）：**
+`Poles`, `PolePairs`, 几何尺寸, 材料属性, MotionSetup 初始位置, Master/Slave 边界
+
+**实现机制：**
+1. SKILL.md 中定义参数白名单，AI 在生成脚本前即可知悉
+2. 脚本中增加 `set_var()` 守卫函数，运行时验证赋值目标
+3. 用户坚持修改禁止参数时 → 建议在 GUI 中手动操作
 
 ### 子流程依赖关系
 
@@ -318,33 +419,34 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 | `SetPropertyValue()` | ❌ 不可用 | 同上 |
 | `DeleteBoundary()` | ❌ 不可用 | 重建模板 |
 | `GetPropertyValue()` | ❌ 不可用 | 通过 `m2d.variable_manager` 读取 |
-| `assign_current()` | ✅ 可用 | 用于 Magnetostatic 激励设置 |
+| `assign_current()` | ⚠️ gRPC 不稳定 | 改用 `boundary.update()` 修改已有 Current 边界（Sub-flow A） |
 | `assign_winding()` | ✅ 可用 | 用于 Transient Winding Group |
 | `assign_coil()` | ✅ 可用 | 用于指定线圈对象 |
 | `m2d[...]=value` | ✅ 可用 | 设计变量读写 |
 | `assign_balloon()` | ✅ 可用 | Magnetostatic 边界 |
 | `assign_vector_potential()` | ✅ 可用 | Transient 边界 |
 | `analyze()` | ✅ 可用 | 求解控制 |
-| `post.get_solution_data()` | ✅ 可用 | 后处理提取数据 |
+| `post.get_solution_data()` | ⚠️ gRPC 单值限制 | 推荐 `get_solution_data_per_variation()` + `data.data_real()` + `data.primary_sweep_values` |
+| `export_matrix()` | ✅ 可用 | 替代 FluxLinkage 表达式（Sub-flow A 磁链提取） |
 
 ---
 
-## 关于 Skill.md 和 pmsm-methods.md 的修改计划
+## Skill.md 和 pmsm-methods.md
+
+两个文件已完成更新：
 
 ### SKILL.md
-- 第零步（执行模式）→ 无需修改
-- 第一步（连接模板）→ 更新为使用 `Prius_2D_Practice` 而非 `pmsm_template`
-- 第二步（修改参数）→ 补充当前模板的实际变量名列表
-- 第三步（判定需求）→ 无需修改
-- 子流程执行规范 → 代码模板指向 `scripts/` 目录下的独立模块而非 `pmsm-methods.md`
+- 模板文件名 → `Prius_2D_Practice.aedt`
+- 参数表 → 实际模板变量（Imax/Thet_deg/Speed_rpm/PolePairs）
+- 子流程引用 → `scripts/` 目录
 
 ### pmsm-methods.md
-替换所有 TODO 占位符，改为引用 `scripts/` 模块的说明和关键公式。
-- **Sub-flow A** → assign_current() 公式（含 9 匝因子）+ Park 变换
-- **Sub-flow B** → 变量 Imax=0 + 电压提取 + FFT + THD
+包含所有子流程的关键公式和模块引用：
+- **Sub-flow A** → boundary.update() + 9 匝因子 + 转子位置标定 + Park 变换
+- **Sub-flow B** → Imax=0 + InducedVoltage + FFT + THD
 - **Sub-flow C** → MTPA 自动搜索 + 扭矩波形提取
-- **Sub-flow D** → 网格扫描 + Is/PF/M 提取
-- **Sub-flow E** → 纯数学外特性计算（Vdc/Imax/speed_max 输入）
+- **Sub-flow D** → MTPA 算法 + 解析电参数 + 7 MAP CSV
+- **Sub-flow E** → 纯数学外特性计算（Vdc/Imax/speed_max）
 
 ---
 
@@ -363,3 +465,5 @@ Sub-flow E (外特性)        ← 必须依赖 A 的输出
 | Sub-flow C 代码 | ✅ 已完成 (scripts/subflow_c_torque.py) |
 | Sub-flow D 代码 | ✅ 已完成 (scripts/subflow_d_efficiency_map.py) |
 | Sub-flow E 代码 | ✅ 已完成 (scripts/subflow_e_external.py) |
+| Spec ↔ 代码同步 | ✅ 已完成 (2026-07-19) |
+| Plan ↔ 代码同步 | ✅ 已完成 (2026-07-19) |

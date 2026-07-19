@@ -14,9 +14,19 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 
 ---
 
-## 第零步：确认执行模式
+## 第零步：需求澄清 + 创建项目
 
-完全沿用 maxwell2d-controller 的机制。读取 `~/.claude/skills/pmsm-optimizer/config.json`：
+### 0a: 需求澄清
+
+与用户确认计算目标和参数范围（算哪个子流程、电流/转速范围等），澄清后继续。
+
+### 0b: 创建项目文件夹
+
+在 `pmsm_projects/` 下创建独立项目文件夹（如 `pmsm_projects/2026-07-19_ldlq_scan/`），将模板文件 `references/Prius_2D_Practice.aedt` 复制到项目目录中。**所有后续操作基于项目目录中的副本，不修改原始模板文件。**
+
+### 0c: 确认执行模式
+
+读取 `config.json`：
 
 - 文件存在且含 `"execution_mode"` → 直接使用，不再询问
 - 文件不存在 → 向用户展示 A/C 选项，保存后继续
@@ -29,9 +39,9 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 
 ---
 
-## 第一步：连接模板项目
+## 第一步：连接项目模板
 
-将模板文件从 skill 目录复制到当前工作目录并打开。
+打开项目目录中的模板副本（非原始模板）。
 
 ### 关键参数
 
@@ -51,8 +61,9 @@ sys.stdout.reconfigure(encoding='utf-8')
 from pathlib import Path
 from ansys.aedt.core import Maxwell2d
 
-ROOT = Path(__file__).resolve().parent if '__file__' in dir() else Path.cwd()
-TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+# 项目目录（由 Step 0b 创建，包含模板副本）
+PROJECT_DIR = Path('pmsm_projects/2026-07-19_ldlq_scan')
+TEMPLATE = str(PROJECT_DIR / 'Prius_2D_Practice.aedt')
 
 # Sub-flow A: Magnetostatic
 m2d = Maxwell2d(
@@ -91,6 +102,24 @@ print("模板项目加载完成")
 | 极对数 | `PolePairs` | 固定值 (Poles/2=4) |
 
 **提示**：完整设计变量列表见设计文档 `docs/superpowers/specs/2026-07-12-pmsm-optimizer-design.md`。修改前先用 `m2d['VariableName']` 验证值。
+
+### 参数权限管控
+
+AI **只能**调节与当前仿真任务相关的必要参数。修改参数前先确认当前子流程，然后只操作白名单内的参数。
+
+**各子流程允许修改的参数：**
+
+| 子流程 | 允许修改 | 说明 |
+|--------|---------|------|
+| A (Ld/Lq MAP) | `Imax` | Thet_deg 由脚本内部 Id/Iq→abc 自动控制 |
+| B (反电势) | `Speed_rpm` | Imax 脚本自动设为 0 |
+| C (额定扭矩) | `Imax`, `Speed_rpm`, `Thet_deg` | |
+| D (效率 MAP) | `Speed_rpm`, `Imax`, `Thet_deg` | 脚本内部 MTPA 控制 Id/Iq |
+| E (外特性) | 无（纯数学计算） | 全部通过函数参数传入 |
+
+**全局禁止修改（所有子流程）：** `Poles`, `PolePairs`, 几何尺寸, 材料属性, MotionSetup 初始位置, Master/Slave 边界
+
+> 如果用户要求修改禁止参数，说明原因并建议用户在 GUI 中手动修改。不可绕过此限制。
 
 ---
 

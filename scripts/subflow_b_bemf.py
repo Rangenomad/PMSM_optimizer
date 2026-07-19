@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 
-def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=200):
+def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50):
     from ansys.aedt.core import Maxwell2d
 
     m2d = Maxwell2d(

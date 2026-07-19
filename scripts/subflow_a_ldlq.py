@@ -3,6 +3,21 @@
 方法: 电流角扫描法, 通过 boundary.update() 修改已有 Current 激励 (含 9 匝因子)
       通过 export_matrix() 提取每线圈 Flux Linkage
 
+Ld/Lq 计算方法参考文献:
+  [1] "Determination of dq Axis Parameters of Interior Permanent Magnet Machine"
+      IEEE Trans. Magnetics, 2010.  — Ld=(Ψd-Ψd(0,Iq))/Id 标准公式
+      https://stars.library.ucf.edu/cgi/viewcontent.cgi?article=3798&context=etd
+  [2] MathWorks/Ansys "Deriving Fast and Accurate PMSM Motor Model from FEA", 2017
+      — ECE 导出流程 + 转子位置平均方法
+      https://www.mathworks.com/content/dam/mathworks/mathworks-dot-com/solutions/
+      automotive/files/mac2017/deriving-fast-accurate-pmsm-motor-model-from-finite-element-analysis.pdf
+  [3] TUM 博士论文 — 交叉饱和与永磁磁链扣除
+      https://mediatum.ub.tum.de/doc/1638373/1638373.pdf
+  [4] 西莫电机论坛 — Maxwell DQ 变换符号约定 (q 轴滞后 d 轴 90°)
+      https://bbs.simol.cn/forum.php?mod=viewthread&ordertype=1&tid=144522
+  [5] ORNL 2011 APEEM 报告 — 2010 Prius 电机基准参数 (Ld/Lq/Φ)
+      https://www.energy.gov/sites/default/files/2014/03/f8/2011_apeem_report.pdf
+
 用法:
     python -c "from scripts.subflow_a_ldlq import run; run(rated_current=250, current_steps=3, angle_steps=3)"
 """
@@ -39,7 +54,10 @@ def id_iq_to_abc(Id, Iq, theta=0):
 
 
 def park_abc_to_dq(psi_a, psi_b, psi_c, theta=0):
-    """Park transform: abc → dq (theta in radians)"""
+    """Park transform: abc → dq (theta in radians)
+    Maxwell 约定: q 轴滞后 d 轴 90°。若发现 Ld≈Lq 或 Lq<Ld,
+    需检查转子初始位置角或变换符号。[4]
+    """
     c = np.cos(theta)
     s = np.sin(theta)
     psi_d = 2 / 3 * (psi_a * c + psi_b * np.cos(theta - 2 * np.pi / 3) + psi_c * np.cos(theta + 2 * np.pi / 3))
@@ -88,6 +106,35 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
     I_max = max_current * I_rated
     currents = np.linspace(I_max / current_steps, I_max, current_steps)
     angles_deg = np.linspace(0, 90, angle_steps)
+    total_points = len(currents) * len(angles_deg)
+
+    # ── 打印扫描计划 ──
+    print(f'\n{"=" * 60}')
+    print(f'  Sub-flow A: Ld/Lq MAP + 主磁链 Φ')
+    print(f'{"=" * 60}')
+    print(f'  额定电流:    {I_rated:.0f} A')
+    print(f'  最大电流:    {I_max:.0f} A ({max_current:.1f}× 额定)')
+    print(f'  电流分点:    {current_steps} 点  [{", ".join(f"{v:.0f}" for v in currents)}] A')
+    print(f'  角度分点:    {angle_steps} 点  [{", ".join(f"{v:.0f}" for v in angles_deg)}]°')
+    print(f'  扫描点数:    1 (零电流) + {total_points} = {total_points + 1} 点')
+    print(f'  预估耗时:    ~{total_points * 10 // 60} 分钟 (每点约10秒)')
+    print(f'  输出:        Ld(Id,Iq) MAP 表格 + 主磁链 Φ')
+    print(f'{"=" * 60}')
+
+    # 确认模式检测
+    import json
+    config_path = ROOT / 'config.json'
+    if config_path.exists():
+        with open(config_path) as f:
+            mode = json.load(f).get('execution_mode', 'confirm')
+    else:
+        mode = 'confirm'
+
+    if mode == 'confirm':
+        resp = input('\n  继续执行? [Y/n] ').strip().lower()
+        if resp and resp != 'y':
+            print('  已取消。')
+            return [], 0.0
 
     m2d = Maxwell2d(
         project=TEMPLATE, design='4_Partial_motor_MS2',
@@ -102,7 +149,25 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
         boundaries.append(b)
 
     results = []
-    total_points = len(currents) * len(angles_deg)
+
+    # ── 零电流点：测纯永磁磁链 Φ 并标定转子角度 ──
+    # 从零电流三相磁链反算转子实际 d 轴位置 θ_r（电角度）[1][4]
+    # Ψa=Φ·cos(θ_r), Ψb=Φ·cos(θ_r-120°), Ψc=Φ·cos(θ_r+120°)
+    # → Clarke 变换 → Ψα,Ψβ → θ_r = atan2(Ψβ,Ψα), Φ = |Ψαβ|
+    print('  [A] 求解零电流点（标定转子角度 + 主磁链 Φ）...')
+    _set_coil_currents(m2d, boundaries, 0, 0, 0)
+    psi_coil_zero = _extract_flux_linkages(m2d)
+    psi_a_z = TURNS * (psi_coil_zero['PhaseA1'] + psi_coil_zero['PhaseA2'])
+    psi_b_z = TURNS * (psi_coil_zero['PhaseB1'] + psi_coil_zero['PhaseB2'])
+    psi_c_z = TURNS * (psi_coil_zero['PhaseC1'] + psi_coil_zero['PhaseC2'])
+    # Clarke transform (amplitude-invariant, 2/3 coef)
+    psi_alpha = 2/3 * (psi_a_z - 0.5*psi_b_z - 0.5*psi_c_z)
+    psi_beta  = 2/3 * (np.sqrt(3)/2 * psi_b_z - np.sqrt(3)/2 * psi_c_z)
+    theta_r = np.arctan2(psi_beta, psi_alpha)  # rotor d-axis electrical angle [rad]
+    phi = np.sqrt(psi_alpha**2 + psi_beta**2)  # PM flux magnitude (always positive) [1][5]
+    print(f'  转子 d 轴角度 θ_r = {np.degrees(theta_r):.1f}°')
+    print(f'  主磁链 Φ = {phi:.6f} Wb  (Prius 参考: ≈ 0.121 Wb [5])')
+
     point_num = 0
     for i, Ia_mag in enumerate(currents):
         for theta_deg in angles_deg:
@@ -111,8 +176,8 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
             Id = Ia_mag * np.sin(theta)
             Iq = Ia_mag * np.cos(theta)
 
-            # Transform Id/Iq → three-phase currents
-            Ia, Ib, Ic = id_iq_to_abc(Id, Iq, theta=0)
+            # Transform Id/Iq → three-phase currents (aligned with actual rotor d-axis θ_r) [1][4]
+            Ia, Ib, Ic = id_iq_to_abc(Id, Iq, theta=theta_r)
 
             print(f'  [A] {point_num}/{total_points} ({100*point_num//total_points}%) '
                   f'求解 Id={Id:+7.2f}A, Iq={Iq:+7.2f}A, Ia={Ia:.2f}A ...')
@@ -128,11 +193,15 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
             psi_b = TURNS * (psi_coil['PhaseB1'] + psi_coil['PhaseB2'])
             psi_c = TURNS * (psi_coil['PhaseC1'] + psi_coil['PhaseC2'])
 
-            # Park transform → dq flux linkages
-            psi_d, psi_q = park_abc_to_dq(psi_a, psi_b, psi_c, theta=0)
+            # Park transform → dq flux linkages (using actual rotor angle θ_r) [1][4]
+            psi_d, psi_q = park_abc_to_dq(psi_a, psi_b, psi_c, theta=theta_r)
 
             # Inductances (avoid division by zero)
-            Ld = psi_d / Id if abs(Id) > 1e-6 else 0
+            # Ld = (Ψd - Φ) / Id: 扣除永磁磁链后仅剩电枢反应贡献 [1][2]
+            # Lq = Ψq / Iq: PM 在 q 轴无贡献, 无需扣除 [1]
+            # 注: 标准做法是 Ld = (Ψd(Id,Iq) - Ψd(0,Iq)) / Id 以计入交叉饱和,
+            #     当前使用固定 Φ = Ψd(0,0) 简化处理 [3]
+            Ld = (psi_d - phi) / Id if abs(Id) > 1e-6 else 0
             Lq = psi_q / Iq if abs(Iq) > 1e-6 else 0
 
             results.append({
@@ -143,13 +212,11 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
 
             print(f'  Id={Id:+7.2f}  Iq={Iq:+7.2f}  Ld={Ld:.5f}  Lq={Lq:.5f}')
 
-    # 主磁链 Φ: Id=0, Iq≈0 时的 Ψq（永磁体贡献）
-    near_zero = [r for r in results if abs(r['Id']) < 1e-6 and abs(r['Iq']) < 1e-6]
-    phi = near_zero[0]['Psi_q'] if near_zero else results[0]['Psi_q']
-
     # 输出表格
+    # 验证: T = 1.5 × PolePairs × (Φ×Iq + (Ld-Lq)×Id×Iq) 应与 FEA 直接算出的扭矩一致 [1]
     print(f'\n{"=" * 60}')
     print(f'主磁链 Φ = {phi:.6f} Wb')
+    print(f'Prius 参考 (ORNL): Φ ≈ 0.121 Wb [5]')
     print(f'{"=" * 60}')
     print(f'{"Id\\Iq":>8s}', end='')
     for a in angles_deg:

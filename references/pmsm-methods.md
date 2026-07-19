@@ -4,6 +4,55 @@
 
 ---
 
+## Transient 求解器公共配置
+
+所有基于 TransientXY (`5_Partial_motor_TR`) 的子流程共用以下时间参数配置规则。
+
+### 电频率
+
+```
+freq = Speed_rpm / 60 × PolePairs      (Hz)
+```
+
+### 停止时间
+
+每个工况点的停止时间 = N 个完整电周期：
+
+```
+StopTime = elec_periods / freq           (s)
+```
+
+### 时间步长
+
+每电周期固定步数，步长随转速自动缩放：
+
+```
+TimeStep = StopTime / (elec_periods × steps_per_period)    (s)
+```
+
+或等价于：
+
+```
+TimeStep = 1 / (freq × steps_per_period)                   (s)
+```
+
+### 各子流程参数
+
+| 子流程 | elec_periods | steps_per_period | 说明 |
+|--------|-------------|-----------------|------|
+| B (空载反电势) | 2-3 | 50 | 需多周期 FFT 分析 |
+| C (额定扭矩 — MTPA 扫描) | 1 | 50 | 快速筛选 |
+| C (额定扭矩 — 精确结算) | 3 | 50 | 稳态波形 + 扭矩脉动 |
+| D (效率 MAP) | 1 | 50 | 单周期取平均扭矩 |
+
+### 物理含义
+
+- **每点固定 N 个电周期**，不随转速变化。转速高则 StopTime 短、TimeStep 短；转速低则 StopTime 长、TimeStep 长。**每工况点的计算量基本恒定**。
+- 永磁同步电机的电磁转矩波动频率为 6× 电频率，每个电周期有 6 个纹波峰谷。50 步/周期下每个纹波周期约有 8 步，可分辨平均值和粗略脉动率。
+- Sub-flow D 效率 MAP 只用平均扭矩，不关心波形，故取 elec_periods=1 最小化求解时间。
+
+---
+
 ## Sub-flow A：Ld/Lq MAP + 主磁链 Φ
 
 **求解器**: MagnetostaticXY (`4_Partial_motor_MS2`)
@@ -30,10 +79,10 @@ Ld = Ψd/Id,  Lq = Ψq/Iq
 
 **方法**: Imax=0 空载，额定转速旋转，提取三相电压波形做 FFT 谐波分析。
 
+**时间配置**: Transient 公共配置 (elec_periods=2~3, steps_per_period=50)
+
 **关键公式**:
 ```
-freq = Speed_rpm / 60 × PolePairs
-StopTime = elec_periods / freq
 Ke = V_fundamental / (Speed_rpm/1000)
 Ke_line = Ke × √3
 THD = √(Σ|Hk|²) / |H1|          k ≥ 2
@@ -72,6 +121,8 @@ IPM 扭矩方程:     T = 1.5·P·(Φ·Iq + (Ld-Lq)·Id·Iq)
 MTPA 轨迹:       Id = A - √(A² + Iq²)    其中 A = Φ / (2·(Lq-Ld))
 方法:           沿 MTPA 轨迹二分搜索 Iq, 使扭矩 = T_target
 ```
+
+**时间配置**: Transient 公共配置 (elec_periods=1, steps_per_period=50)
 
 **关键公式** (解析电参数):
 ```
