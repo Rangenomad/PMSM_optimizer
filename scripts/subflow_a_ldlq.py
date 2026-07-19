@@ -29,7 +29,7 @@ import numpy as np
 from ansys.aedt.core import Maxwell2d
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+_DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 TURNS = 9  # Matrix NumberOfTurns per coil object
 
@@ -101,7 +101,16 @@ def _extract_flux_linkages(m2d):
     return _parse_matrix_flux_linkage(text)
 
 
-def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
+def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7,
+        project_path=None):
+    from scripts.project_utils import get_template_path
+
+    # 解析模板路径
+    if project_path:
+        template = get_template_path(Path(project_path))
+    else:
+        template = _DEFAULT_TEMPLATE
+
     I_rated = rated_current
     I_max = max_current * I_rated
     currents = np.linspace(I_max / current_steps, I_max, current_steps)
@@ -137,7 +146,7 @@ def run(rated_current=250, max_current=3.0, current_steps=6, angle_steps=7):
             return [], 0.0
 
     m2d = Maxwell2d(
-        project=TEMPLATE, design='4_Partial_motor_MS2',
+        project=template, design='4_Partial_motor_MS2',
         solution_type='MagnetostaticXY',
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
