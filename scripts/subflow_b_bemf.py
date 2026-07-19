@@ -12,14 +12,21 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+_DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 
-def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50):
+def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=None):
+    from scripts.project_utils import get_template_path
+    from scripts.param_guard import check_var
     from ansys.aedt.core import Maxwell2d
 
+    if project_path:
+        template = get_template_path(Path(project_path))
+    else:
+        template = _DEFAULT_TEMPLATE
+
     m2d = Maxwell2d(
-        project=TEMPLATE, design='5_Partial_motor_TR',
+        project=template, design='5_Partial_motor_TR',
         solution_type='TransientXY',
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
@@ -27,6 +34,7 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50):
     print(f'[B] 步骤 1/4: 设置空载工况 Imax=0, Speed={rated_speed}rpm')
     # 设置空载 (Imax=0) 和转速
     m2d['Imax'] = '0A'
+    check_var('Speed_rpm', 'B')
     m2d['Speed_rpm'] = f'{rated_speed}rpm'
 
     # 计算仿真时间 (PolePairs = Poles/2)
