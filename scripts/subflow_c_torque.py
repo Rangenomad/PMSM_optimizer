@@ -21,6 +21,7 @@ _DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 def _mtpa_scan(m2d, rated_speed, pole_pairs):
     """MTPA 角度扫描: 候选角各跑 1 个电周期, 选扭矩最大者"""
+    from scripts.param_guard import check_var
     candidate_angles = [0, -15, -25, -35, -45, -60]
     freq = rated_speed / 60 * pole_pairs
 
@@ -35,6 +36,7 @@ def _mtpa_scan(m2d, rated_speed, pole_pairs):
 
     for idx, angle in enumerate(candidate_angles):
         print(f'  [C-MTPA] {idx+1}/{len(candidate_angles)} 候选角 θ={angle}°, 正在求解...')
+        check_var('Thet_deg', 'C')
         m2d['Thet_deg'] = str(angle)  # 不用 ° 后缀，gRPC 赋值第二次后静默失败
         m2d.save_project()
         m2d.analyze('Setup1')

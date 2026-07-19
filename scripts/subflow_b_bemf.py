@@ -33,6 +33,7 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=
 
     print(f'[B] 步骤 1/4: 设置空载工况 Imax=0, Speed={rated_speed}rpm')
     # 设置空载 (Imax=0) 和转速
+    check_var('Imax', 'B')
     m2d['Imax'] = '0A'
     check_var('Speed_rpm', 'B')
     m2d['Speed_rpm'] = f'{rated_speed}rpm'

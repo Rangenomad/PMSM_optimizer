@@ -6,8 +6,8 @@ AI 在生成代码前应先检查此模块，运行时再次验证。
 
 # 各子流程允许修改的设计变量
 ALLOWED_VARS: dict[str, set[str]] = {
-    'A': {'Imax'},                     # Thet_deg 由内部 Id/Iq→abc 控制
-    'B': {'Speed_rpm'},                # Imax 脚本自动设为 0
+    'A': {'Imax'},  # subflow_a 通过 boundary.update() 设电流，不直接用 m2d[...]
+    'B': {'Speed_rpm', 'Imax'},
     'C': {'Imax', 'Speed_rpm', 'Thet_deg'},
     'D': {'Speed_rpm', 'Imax', 'Thet_deg'},
 }
@@ -17,9 +17,8 @@ FORBIDDEN_VARS: set[str] = {
     'Poles', 'PolePairs',
     # 几何尺寸
     'StackLength', 'AirGap', 'MagnetThickness',
-    # 材料由模板预设，不可修改
-    # MotionSetup 初始位置角
-    # Master/Slave 边界
+    # 以下禁止参数目前仅在文档层面约束，代码层面未强制：
+    # 材料属性 | MotionSetup 初始位置角 | Master/Slave 边界
 }
 
 # 别名映射：用户可能用不同名称引用同一参数
