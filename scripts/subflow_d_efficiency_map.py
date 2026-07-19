@@ -19,7 +19,7 @@ from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
-TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+_DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 # --- 电机参数 (默认值, 从 Sub-flow A/B/C 结果校准) ---
 DEFAULT_Ld = 0.00035    # H
@@ -113,11 +113,19 @@ def _calc_analytical(pole_pairs, speed, Id, Iq, T_avg,
 
 def run(speed_min=1000, speed_max=8000, speed_steps=5, torque_steps=5,
         vdc=300, imax=250,
-        Ld=DEFAULT_Ld, Lq=DEFAULT_Lq, Phi=DEFAULT_Phi, Rs=DEFAULT_Rs):
+        Ld=DEFAULT_Ld, Lq=DEFAULT_Lq, Phi=DEFAULT_Phi, Rs=DEFAULT_Rs,
+        project_path=None):
+    from scripts.project_utils import get_template_path
+    from scripts.param_guard import check_var
     from ansys.aedt.core import Maxwell2d
 
+    if project_path:
+        template = get_template_path(Path(project_path))
+    else:
+        template = _DEFAULT_TEMPLATE
+
     m2d = Maxwell2d(
-        project=TEMPLATE, design='5_Partial_motor_TR',
+        project=template, design='5_Partial_motor_TR',
         solution_type='TransientXY',
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
@@ -155,8 +163,11 @@ def run(speed_min=1000, speed_max=8000, speed_steps=5, torque_steps=5,
             angle_deg = int(np.degrees(beta_mtpa))
 
             # 设置 FEA 参数
+            check_var('Speed_rpm', 'D')
             m2d['Speed_rpm'] = f'{n}rpm'
+            check_var('Imax', 'D')
             m2d['Imax'] = f'{Is_mtpa}A'
+            check_var('Thet_deg', 'D')
             m2d['Thet_deg'] = str(-angle_deg)
 
             freq = n / 60 * pole_pairs
