@@ -187,6 +187,7 @@ AI 根据用户指令选择模块调用。详见设计文档 `docs/superpowers/s
 - 求解器：`TransientXY`
 - 方法：空载额定转速旋转
 - 输出：三相 BEMF 波形 + FFT 谐波幅值 + THD
+- 波形图：自动生成 `bemf_{speed}rpm.png` 保存到项目目录（不含 FFT，仅时域波形）
 - 模板参考：`references/pmsm-methods.md` §B
 
 ### Sub-flow C：额定点扭矩

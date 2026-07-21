@@ -12,6 +12,7 @@
 
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
+import re
 from pathlib import Path
 import numpy as np
 
@@ -19,10 +20,49 @@ ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
 
 
+def _sync_motion_angular_velocity(aedt_path, target_rpm):
+    """开项目前同步 .aedt 文件中的 Angular Velocity 和 Speed_rpm 默认值。
+
+    gRPC 下边界属性修改不持久化，且 m2d['Speed_rpm']='2000rpm' 带单位赋值
+    会破坏绕组公式 Omega=360*speed_rpm*PolePairs/60 的表达式计算。
+
+    此函数直接编辑 .aedt 文本文件，确保：
+    1. Angular Velocity = '{target_rpm}rpm'（MotionSetup 机械角速度）
+    2. Speed_rpm 默认值 = '{target_rpm}'（无单位，绕组公式依赖）
+    """
+    file = Path(aedt_path)
+    if not file.exists():
+        return
+    content = file.read_text(encoding='utf-8')
+
+    # 1. 同步 Angular Velocity（可能是硬编码值或变量引用）
+    new_content, n_av = re.subn(
+        r"'Angular Velocity'='[^']*'",
+        f"'Angular Velocity'='{target_rpm}rpm'",
+        content
+    )
+
+    # 2. 同步 Speed_rpm 默认值（强制无单位，避免绕组公式计算异常）
+    new_content, n_sp = re.subn(
+        r"VariableProp\('Speed_rpm', 'UD', '', '[^']*'",
+        f"VariableProp('Speed_rpm', 'UD', '', '{target_rpm}'",
+        new_content
+    )
+
+    if n_av > 0 or n_sp > 0:
+        file.write_text(new_content, encoding='utf-8')
+        print(f'  [C] .aedt 文件已同步: AV={target_rpm}rpm ({n_av}处), Speed_rpm={target_rpm} ({n_sp}处)')
+
+
 def _mtpa_scan(m2d, rated_speed, pole_pairs):
-    """MTPA 角度扫描: 候选角各跑 1 个电周期, 选扭矩最大者"""
+    """MTPA 角度扫描: 候选角各跑 1 个电周期, 选扭矩最大者.
+
+    候选角覆盖正负区间:
+    - 负角 → 弱磁方向 (Lq > Ld 的传统 IPM 最优)
+    - 正角 → 增磁方向 (Ld > Lq 的反凸极电机最优)
+    """
     from scripts.param_guard import check_var
-    candidate_angles = [0, -15, -25, -35, -45, -60]
+    candidate_angles = [-20, 0, 15, 30, 45, 55]
     freq = rated_speed / 60 * pole_pairs
 
     # 粗网格: 100 步/周期
@@ -71,17 +111,22 @@ def run(rated_current=250, current_angle=None, rated_speed=3000, elec_periods=3,
     else:
         template = _DEFAULT_TEMPLATE
 
+    # 打开项目前同步 MotionSetup Angular Velocity 和 Speed_rpm 默认值
+    # gRPC 无法持久化边界属性修改，且 m2d['Speed_rpm']='2000rpm' 带单位赋值会
+    # 破坏绕组公式 Omega=360*speed_rpm*PolePairs/60 的表达式计算
+    _sync_motion_angular_velocity(template, rated_speed)
+
     m2d = Maxwell2d(
         project=template, design='5_Partial_motor_TR',
         solution_type='TransientXY',
         non_graphical=False, new_desktop=False, close_on_exit=False
     )
 
-    # 设置负载和转速
+    # 设置负载电流
+    # Speed_rpm 已通过 .aedt 文件预设，不通过 PyAEDT 设置（避免单位破坏绕组公式）
     check_var('Imax', 'C')
     m2d['Imax'] = f'{rated_current}A'
-    check_var('Speed_rpm', 'C')
-    m2d['Speed_rpm'] = f'{rated_speed}rpm'
+
     pole_pairs = float(m2d['Poles']) / 2
 
     # MTPA 自动搜索（未指定电流角时）

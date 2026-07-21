@@ -8,11 +8,94 @@
 
 import sys
 sys.stdout.reconfigure(encoding='utf-8')
+import re
 from pathlib import Path
 import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 _DEFAULT_TEMPLATE = str(ROOT / 'references' / 'Prius_2D_Practice.aedt')
+
+
+def _sync_motion_angular_velocity(aedt_path, target_rpm):
+    """开项目前同步 .aedt 文件中的 Angular Velocity 和 Speed_rpm 默认值。
+
+    gRPC 下边界属性修改不持久化，且 m2d['Speed_rpm']='2000rpm' 带单位赋值
+    会破坏绕组公式 Omega=360*speed_rpm*PolePairs/60 的表达式计算。
+
+    此函数直接编辑 .aedt 文本文件，确保：
+    1. Angular Velocity = '{target_rpm}rpm'（MotionSetup 机械角速度）
+    2. Speed_rpm 默认值 = '{target_rpm}'（无单位，绕组公式依赖）
+    """
+    file = Path(aedt_path)
+    if not file.exists():
+        return
+    content = file.read_text(encoding='utf-8')
+
+    # 1. 同步 Angular Velocity（可能是硬编码值或变量引用）
+    new_content, n_av = re.subn(
+        r"'Angular Velocity'='[^']*'",
+        f"'Angular Velocity'='{target_rpm}rpm'",
+        content
+    )
+
+    # 2. 同步 Speed_rpm 默认值（强制无单位，避免绕组公式计算异常）
+    new_content, n_sp = re.subn(
+        r"VariableProp\('Speed_rpm', 'UD', '', '[^']*'",
+        f"VariableProp('Speed_rpm', 'UD', '', '{target_rpm}'",
+        new_content
+    )
+
+    if n_av > 0 or n_sp > 0:
+        file.write_text(new_content, encoding='utf-8')
+        print(f'  [B] .aedt 文件已同步: AV={target_rpm}rpm ({n_av}处), Speed_rpm={target_rpm} ({n_sp}处)')
+
+
+def _plot_bemf(time_s, va, vb, vc, rated_speed, save_dir=None):
+    """Plot three-phase BEMF waveform (time-domain only, no FFT).
+
+    Parameters
+    ----------
+    time_s : np.ndarray
+        Time vector (seconds).
+    va, vb, vc : np.ndarray
+        Phase A/B/C voltage (V).
+    rated_speed : int
+        Speed label for plot title and filename.
+    save_dir : Path or str, optional
+        Directory to save the plot. Defaults to cwd.
+    """
+    try:
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+    except ImportError:
+        print('[B] 警告: matplotlib 未安装，跳过波形图生成')
+        return
+
+    fig, ax = plt.subplots(figsize=(10, 4.5))
+    t_ms = time_s * 1000
+    ax.plot(t_ms, va, label='Phase A', color='#e74c3c', lw=0.8)
+    ax.plot(t_ms, vb, label='Phase B', color='#2ecc71', lw=0.8)
+    ax.plot(t_ms, vc, label='Phase C', color='#3498db', lw=0.8)
+    ax.set_xlabel('Time (ms)')
+    ax.set_ylabel('Voltage (V)')
+    ax.set_title(f'Back EMF @ {rated_speed} rpm')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+
+    ymin = min(va.min(), vb.min(), vc.min())
+    ymax = max(va.max(), vb.max(), vc.max())
+    margin = (ymax - ymin) * 0.1
+    ax.set_ylim(ymin - margin, ymax + margin)
+
+    plt.tight_layout()
+
+    out_dir = Path(save_dir) if save_dir else Path.cwd()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = str(out_dir / f'bemf_{rated_speed}rpm.png')
+    fig.savefig(out_path, dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    print(f'[B] 波形图已保存: {out_path}')
 
 
 def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=None):
@@ -25,6 +108,11 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=
     else:
         template = _DEFAULT_TEMPLATE
 
+    # 打开项目前同步 MotionSetup Angular Velocity 和 Speed_rpm 默认值
+    # gRPC 无法持久化边界属性修改，且 m2d['Speed_rpm']='2000rpm' 带单位赋值会
+    # 破坏绕组公式 Omega=360*speed_rpm*PolePairs/60 的表达式计算
+    _sync_motion_angular_velocity(template, rated_speed)
+
     m2d = Maxwell2d(
         project=template, design='5_Partial_motor_TR',
         solution_type='TransientXY',
@@ -32,11 +120,10 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=
     )
 
     print(f'[B] 步骤 1/4: 设置空载工况 Imax=0, Speed={rated_speed}rpm')
-    # 设置空载 (Imax=0) 和转速
+    # 设置空载 (Imax=0)
+    # Speed_rpm 已通过 .aedt 文件预设，不通过 PyAEDT 设置（避免单位破坏绕组公式）
     check_var('Imax', 'B')
     m2d['Imax'] = '0A'
-    check_var('Speed_rpm', 'B')
-    m2d['Speed_rpm'] = f'{rated_speed}rpm'
 
     # 计算仿真时间 (PolePairs = Poles/2)
     pole_pairs = float(m2d['Poles']) / 2
@@ -105,6 +192,10 @@ def run(rated_speed=3000, elec_periods=2, time_steps_per_cycle=50, project_path=
         print(f'{name} 相: 基波幅值={r["fundamental"]:.2f} V, THD={r["thd"]:.2f}%')
     print(f'线反电势常数 Ke = {ke_line:.4f} V/(krpm)')
     print(f'{"=" * 60}')
+
+    # 保存波形图
+    _plot_bemf(time_vals, va, vb, vc, rated_speed,
+               save_dir=Path(project_path) if project_path else None)
 
     m2d.close_project()
     return results
