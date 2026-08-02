@@ -6,17 +6,18 @@ AI 在生成代码前应先检查此模块，运行时再次验证。
 
 # 各子流程允许修改的设计变量
 ALLOWED_VARS: dict[str, set[str]] = {
-    'A': {'Imax'},  # subflow_a 通过 boundary.update() 设电流，不直接用 m2d[...]
-    'B': {'Speed_rpm', 'Imax'},
-    'C': {'Imax', 'Speed_rpm', 'Thet_deg'},
-    'D': {'Speed_rpm', 'Imax', 'Thet_deg'},
+    'A': {'Imax', 'StackLength'},  # subflow_a 通过 boundary.update() 设电流，不直接用 m2d[...]
+    'B': {'Speed_rpm', 'Imax', 'StackLength'},
+    'C': {'Imax', 'Speed_rpm', 'Thet_deg', 'StackLength'},
+    'D': {'Speed_rpm', 'Imax', 'Thet_deg', 'StackLength'},
+    'E': {'Imax', 'StackLength'},  # 纯解析，StackLength 用于 psi_dq 表对应的轴向长度
 }
 
 # 全局禁止修改的参数（所有子流程）
 FORBIDDEN_VARS: set[str] = {
     'Poles', 'PolePairs',
     # 几何尺寸
-    'StackLength', 'AirGap', 'MagnetThickness',
+    'AirGap', 'MagnetThickness',
     # 以下禁止参数目前仅在文档层面约束，代码层面未强制：
     # 材料属性 | MotionSetup 初始位置角 | Master/Slave 边界
 }

@@ -1,296 +1,347 @@
 ---
 name: pmsm-optimizer
-description: 永磁同步电机(PMSM)电磁设计参数提取与优化。基于固定的模板模型，通过修改参数和运行预设子流程，计算Ld/Lq MAP、反电势、扭矩、全域工作特性MAP、外特性等。当用户提到PMSM参数计算、Ld/Lq、交直轴电感、反电势、扭矩分析、损耗MAP、效率MAP、外特性、T-n曲线、MTPA、弱磁控制、永磁同步电机优化时触发。
+description: 永磁同步电机(PMSM)电磁设计参数提取与优化。基于固定的Prius 2D模板，用户指定直流母线电压、逆变器电流、电机长度等外部条件后，按管线进行MTPA标定→外特性→效率MAP计算。也支持Ld/Lq、反电势、额定扭矩等单点参数提取。触发词：PMSM、Ld/Lq、反电势、扭矩、效率MAP、外特性、MTPA、弱磁控制、永磁同步电机优化。
 allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 ---
 
 # PMSM Optimizer Skill
 
-基于 Ansys Maxwell2D (PyAEDT) 的永磁同步电机电磁参数提取与优化工具。
+基于 Ansys Maxwell2D (PyAEDT) 的永磁同步电机电磁性能评估工具。
+**模板固定为 Prius 2D (Prius_2D_Practice.aedt)，不做几何修改。**
+
+---
+
+## 设计哲学
+
+```                         
+用户使用条件                    主管线 (A → E → D → F)              输出
+─────────────                  ─────────────────────────               ──────
+Vdc (母线电压)      ──→  ① Sub-flow A               ──→  ψd/ψq 磁链表
+Imax (电流限制)            MTPA 标定                        MTPA 标定表
+叠片长度 (可选)            Magnetostatic FEA
+
+                         ② Sub-flow E               ──→  T-n 曲线
+                           外特性计算                      工作点轨迹
+                           纯解析 (基于磁链表)
+
+                         ③ Sub-flow D               ──→  效率 MAP
+                           效率 MAP                       损耗 MAP
+                           纯解析 (基于磁链表)             PF/M/Is MAP
+
+                         ④ Sub-flow F               ──→  仿真报告
+                           报告生成                        外特性表 CSV
+                           纯数据整合                      损耗表 CSV
+                                                          Markdown 报告
+
+
+次要管线 (按需)
+─────────────
+Sub-flow B: 空载反电势 (Transient FEA)
+Sub-flow C: 额定点扭矩 (Transient FEA)
+Ld/Lq/Φ 参数提取 (Sub-flow A 的中间产物)
+```
+
+**核心思路**：用户只需指定使用条件（Vdc, Imax），主管线自动完成从 FEA 标定到性能评估的全流程。FEA 只跑一次（Sub-flow A），后续外特性和效率 MAP 均为解析计算，秒级出结果。
+
+---
+
+## 用户使用条件
+
+| 参数 | 含义 | 典型值 | 影响 |
+|------|------|--------|------|
+| **Vdc** | 直流母线电压 (V) | 300, 500, 650 | 决定弱磁拐点、电压极限圆 |
+| **Imax** | 逆变器峰值电流 (A) | 200, 300, 350 | 决定最大扭矩、电流极限圆 |
+| 叠片长度 | 电机轴向长度 (mm) | 83.82 (可调) | 等比例缩比扭矩/功率 |
+| Rs | 相电阻 (Ω) | 0.05 | 影响铜耗、效率绝对值 |
+
+> **注意**：
+> - 叠片长度（StackLength）可通过函数参数传入，会自动更新 FEA 模型的 ModelDepth。默认值为 83.82 mm（Prius 基准）。
+> - **局部模型**：模板使用 1/8 局部电机模型（6 coils，Master/Slave 反周期边界）。`subflow_a_mtpa_cal.py` 自动将磁链缩放 8 倍（`SYMMETRY_MULTIPLIER=8`）得到完整电机等效值，后续管线无需额外处理。
+> - Vdc 和 Imax 也通过函数参数传入，不手动修改 FEA 模型。
+
+---
 
 ## 环境要求
 
-| 组件 | 版本要求 | 说明 |
-|------|---------|------|
-| Python | ≥ 3.10 | 推荐 3.13 |
-| AEDT | 2023.2 | 需预先安装并可用 |
-| **pyaedt** | **0.25.1** | ⚠️ 版本敏感，见下方说明 |
-| numpy | ≥ 1.20 | pyaedt 依赖 |
-| matplotlib | 任意 | 波形图生成 |
+| 组件 | 版本 | 说明 |
+|------|------|------|
+| Python | ≥ 3.10 (推荐 3.13) | |
+| AEDT | **2023.2** | 需预先安装 |
+| **pyaedt** | **0.25.1** | ⚠️ 严格锁定，见下方 |
+| numpy | ≥ 1.20 | |
+| scipy | ≥ 1.7 | RegularGridInterpolator |
+| matplotlib | ≥ 3.5 | 图表生成 |
 
-### ⚠️ pyaedt 版本兼容性
-
-pyaedt 版本与 AEDT/Python 版本之间有严格的兼容性约束。以下是经过验证的组合：
+### ⚠️ pyaedt 版本
 
 | pyaedt | Python 3.13 | AEDT 2023.2 | 状态 |
 |--------|------------|-------------|------|
 | **0.25.1** | ✅ | ✅ | **唯一可用** |
-| 1.3.0 | ✅ | ❌ gRPC API 不兼容 (GetVariables/GetSolutionType/GetPropValue 失败) | 不可用 |
-| 0.7.x ~ 0.8.x | ❌ Python 3.13 不支持 | ✅ | 不可用 |
+| 1.3.0 | ✅ | ❌ gRPC 不兼容 | 不可用 |
+| 0.7~0.8 | ❌ | ✅ | 不可用 |
 
-> **安装命令**: `pip install pyaedt==0.25.1`
-
-分发此 skill 给他人时，必须确保接收方安装 pyaedt 0.25.1，否则数据提取阶段会因 gRPC 版本不匹配而失败（求解可以完成，但无法读取结果）。
-
-### COM 后备方案
-
-`scripts/com_extract.py` 提供基于 COM（win32com）的数据提取后备方案。COM 是 AEDT 的原生协议，自 AEDT 2015 起稳定不变。当 pyaedt gRPC 接口出现版本兼容问题时，可作为备选。**目前测试尚未完全通过**（CreateReport 数组序列化问题），保留供后续完善。
-
-## 与 maxwell2d-controller 的关系
-
-本 skill 继承其设计原则（分步执行、auto/confirm 模式、跨步骤会话保持、代码规范），但专注于 PMSM 电磁设计这一个场景，不做通用电磁仿真。
+```bash
+pip install pyaedt==0.25.1
+```
 
 ---
 
-## 第零步：需求澄清 + 创建项目
+## 主管线
 
-### 0a: 需求澄清
-
-与用户确认计算目标和参数范围（算哪个子流程、电流/转速范围等），澄清后继续。
-
-### 0b: 创建项目文件夹
-
-在 `pmsm_projects/` 下创建独立项目文件夹（如 `pmsm_projects/2026-07-19_ldlq_scan/`），将模板文件 `references/Prius_2D_Practice.aedt` 复制到项目目录中。**所有后续操作基于项目目录中的副本，不修改原始模板文件。**
-
-### 0c: 确认执行模式
-
-读取 `config.json`：
-
-- 文件存在且含 `"execution_mode"` → 直接使用，不再询问
-- 文件不存在 → 向用户展示 A/C 选项，保存后继续
-
-**模式说明：**
-- **auto 模式**：计划展示后直接执行，不等待用户确认
-- **confirm 模式**：每步展示代码，等待用户确认后执行
-
-模式可随时通过"切换为确认模式"/"切换为自动模式"切换。
-
----
-
-## 第一步：连接项目模板
-
-打开项目目录中的模板副本（非原始模板）。
-
-### 关键参数
-
-| 参数 | 值 | 说明 |
-|---|---|---|
-| 模板文件 | `references/Prius_2D_Practice.aedt` | 用户预先配置好的 PMSM 模型 |
-| 工作模式 | `non_graphical=False` | 图形模式，用户可实时查看 |
-| 会话模式 | `new_desktop=False, close_on_exit=False` | 复用已有 AEDT 会话 |
-| 求解器选择 | 根据子流程自动选择 | Sub-flow A → `4_Partial_motor_MS2` (Magnetostatic) |
-|  |  | Sub-flow B/C/D → `5_Partial_motor_TR` (Transient) |
-
-### 执行代码
+### 第零步：创建项目
 
 ```python
-import sys
-sys.stdout.reconfigure(encoding='utf-8')
-from pathlib import Path
-from ansys.aedt.core import Maxwell2d
+from scripts.project_utils import create_project
+project_dir = create_project('my_design')  # → pmsm_projects/YYYY-MM-DD_my_design/
+```
 
-# 项目目录（由 Step 0b 创建，包含模板副本）
-PROJECT_DIR = Path('pmsm_projects/2026-07-19_ldlq_scan')
-TEMPLATE = str(PROJECT_DIR / 'Prius_2D_Practice.aedt')
+模板 `references/Prius_2D_Practice.aedt` 被复制到项目目录。所有后续操作基于副本。
 
-# Sub-flow A: Magnetostatic
-m2d = Maxwell2d(
-    project=TEMPLATE,
-    design="4_Partial_motor_MS2",
-    solution_type="MagnetostaticXY",
-    non_graphical=False,
-    new_desktop=False,
-    close_on_exit=False
-)
+### ① Sub-flow A：MTPA 标定
 
-# 或 Sub-flow B/C/D: Transient
-# m2d = Maxwell2d(
-#     project=TEMPLATE,
-#     design="5_Partial_motor_TR",
-#     solution_type="TransientXY",
-#     ...
-# )
+**这是唯一需要跑 FEA 的步骤。**
 
-print(f"Project: {m2d.project_name}")
-print(f"Design:  {m2d.design_name}")
-print("模板项目加载完成")
+```
+求解器: MagnetostaticXY (4_Partial_motor_MS2)
+方法:   Id×Iq 网格扫描 → ψd(Id,Iq), ψq(Id,Iq) 磁链表
+        基于磁链表做 MTPA 优化 → (n,Is) → (Id_opt, Iq_opt, T_mtpa)
+默认网格: 20 Id × 15 Iq = 300 FEA 点, ~15 分钟
+扭矩精度: 0.4-1.7% (FW 区 3× 优于 10×10 均匀网格)
+```
+
+**用法**：
+
+```python
+# 完整 Phase 1 + Phase 2 (默认 FW 加密 20×15 网格)
+from scripts.subflow_a_mtpa_cal import run
+results = run(project_path='pmsm_projects/my_design', vdc=500, imax=300)
+
+# 仅 Phase 1: ψd/ψq 磁链表 (自定义网格)
+from scripts.subflow_a_mtpa_cal import phase1_psi_dq_table
+phase1_psi_dq_table(n_id=10, n_iq=10, project_path='pmsm_projects/my_design')
+
+# 仅 Phase 2: MTPA 标定 (基于已有磁链表)
+from scripts.subflow_a_mtpa_cal import phase2_mtpa_calibrate
+phase2_mtpa_calibrate('pmsm_projects/my_design/psi_dq_table.npz', vdc=500, imax=300)
+```
+
+**输出**：
+| 文件 | 内容 |
+|------|------|
+| `psi_dq_table.npz` | id_grid, iq_grid, psi_d(20×15), psi_q(20×15) |
+| `mtpa_table.npz` | speed×Is → Thet_opt, T_mtpa, Vs, M, feasible |
+
+### ② Sub-flow E：外特性
+
+```
+方法:   纯解析 (不跑 FEA)
+输入:   psi_dq_table.npz (来自 ①) + Vdc/Imax
+约束:   Vs ≤ Vdc/√3 (电压圆), Is ≤ Imax (电流圆)
+区域:   MTPA 恒扭矩区 + FW 弱磁区
+输出:   T-n 曲线, Id/Iq/Is/Vs 轨迹, 4-panel 图表
+```
+
+**用法**：
+
+```python
+from scripts.subflow_e_external import run
+results = run(project_path='pmsm_projects/my_design', vdc=500, imax=300)
+# → outer_characteristic.npz + outer_char_500V_300A.png
+```
+
+**典型输出 (Vdc=500V, Imax=300A)**：
+
+| 指标 | 值 |
+|------|-----|
+| 峰值扭矩 | 495.5 Nm @ 500 rpm |
+| 弱磁拐点 | ~1393 rpm |
+| 峰值功率 | 71.8 kW @ 1456 rpm |
+| 万转下垂率 | 8.9% |
+
+### ③ Sub-flow D：效率 MAP
+
+```
+方法:   纯解析 (不跑 FEA)
+输入:   psi_dq_table.npz (来自 ①) + Vdc/Imax
+原理:   磁链表插值 + MTPA/FW 控制 → 每 (n,T) 点的最优 (Id,Iq)
+损耗:   铜耗 3×(Is/√2)²×Rs + 铁耗 k×(f/f0)^α×(ψ/ψpm)^β
+输出:   η/P_loss/Is/M/PF MAP, 4-panel 图表
+```
+
+**用法**：
+
+```python
+from scripts.subflow_d_efficiency_map import run
+results = run(project_path='pmsm_projects/my_design', vdc=500, imax=300,
+              n_speed=30, n_torque=30)
+# → efficiency_map.npz + efficiency_map_500V_300A.png
+```
+
+**典型输出 (Vdc=500V, Imax=300A, 30×30 网格)**：
+
+| 指标 | 值 |
+|------|-----|
+| 峰值效率 | 98.0% @ 2828 rpm, 85 Nm |
+| >97% 高效区 | 44.9% |
+| >95% 高效区 | 69.7% |
+| 全局最大扭矩 | 495.3 Nm |
+
+### ④ Sub-flow F：报告生成
+
+```
+方法:   纯数据整合 (不跑 FEA)
+输入:   outer_characteristic.npz (来自 ②) + efficiency_map.npz (来自 ③)
+输出:   外特性表 CSV + 损耗表 CSV + Markdown 仿真报告
+```
+
+**用法**：
+
+```python
+from scripts.subflow_f_report import run
+run(project_path='pmsm_projects/my_design')
+# → outer_characteristic_table.csv + loss_table.csv + simulation_report.md
+```
+
+**输出文件**：
+
+| 文件 | 内容 |
+|------|------|
+| `outer_characteristic_table.csv` | 转速, 扭矩, 功率 |
+| `loss_table.csv` | 转速, 扭矩, 损耗, Udc, Iac_rms, M, PF |
+| `simulation_report.md` | 仿真目的、设置、结果汇总、贴图、表链接 |
+
+### 一键运行主管线
+
+```python
+# 等价于 ①→②→③→④
+from scripts.subflow_a_mtpa_cal import run as run_a
+from scripts.subflow_e_external import run as run_e
+from scripts.subflow_d_efficiency_map import run as run_d
+from scripts.subflow_f_report import run as run_f
+
+project = 'pmsm_projects/my_design'
+vdc, imax = 500, 300
+
+run_a(project_path=project, vdc=vdc, imax=imax)        # ① FEA ~15min
+run_e(project_path=project, vdc=vdc, imax=imax)        # ② 解析 <1s
+run_d(project_path=project, vdc=vdc, imax=imax)        # ③ 解析 ~5s
+run_f(project_path=project)                             # ④ 报告 <1s
 ```
 
 ---
 
-## 第二步：按指令修改参数（可选）
-
-用户要求修改参数时执行此步。以下为可修改参数及其对应操作：
-
-| 参数 | 变量名 | 修改方式 |
-|------|--------|---------|
-| 相电流幅值 | `Imax` | `m2d['Imax'] = '250A'` |
-| 电流角 | `Thet_deg` | `m2d['Thet_deg'] = '-30°'` |
-| 机械转速 | `Speed_rpm` | `m2d['Speed_rpm'] = '3000rpm'` |
-| 极对数 | `PolePairs` | 固定值 (Poles/2=4) |
-
-**提示**：完整设计变量列表见设计文档 `docs/superpowers/specs/2026-07-12-pmsm-optimizer-design.md`。修改前先用 `m2d['VariableName']` 验证值。
-
-### 参数权限管控
-
-AI **只能**调节与当前仿真任务相关的必要参数。修改参数前先确认当前子流程，然后只操作白名单内的参数。
-
-**各子流程允许修改的参数：**
-
-| 子流程 | 允许修改 | 说明 |
-|--------|---------|------|
-| A (Ld/Lq MAP) | `Imax` | Thet_deg 由脚本内部 Id/Iq→abc 自动控制 |
-| B (反电势) | `Speed_rpm` | Imax 脚本自动设为 0 |
-| C (额定扭矩) | `Imax`, `Speed_rpm`, `Thet_deg` | |
-| D (效率 MAP) | `Speed_rpm`, `Imax`, `Thet_deg` | 脚本内部 MTPA 控制 Id/Iq |
-| E (外特性) | 无（纯数学计算） | 全部通过函数参数传入 |
-
-**全局禁止修改（所有子流程）：** `Poles`, `PolePairs`, 几何尺寸, 材料属性, MotionSetup 初始位置, Master/Slave 边界
-
-> 如果用户要求修改禁止参数，说明原因并建议用户在 GUI 中手动修改。不可绕过此限制。
-
----
-
-## 第三步：判定用户需求 → 生成子流程计划
-
-根据用户的指令判定需要执行的子流程，生成检视列表。
-
-### 用户指令 → 子流程映射
-
-| 用户说 | 执行计划 |
-|---|---|
-| "算 Ld/Lq" | Step1 → Sub-flow A |
-| "算反电势" | Step1 → Sub-flow B |
-| "算额定扭矩" | Step1 → Sub-flow C |
-| "跑个损耗 MAP + 工作特性" | Step1 → Sub-flow D |
-| "算外特性，母线 300V，电流 200A" | Step1 → Sub-flow A → Sub-flow E |
-| "改长度到 80mm，再算反电势和扭矩" | Step1 → Step2 → Sub-flow B → Sub-flow C |
-| "全部算一遍" | Step1 → Sub-flow A → B → C → D → E |
-| "算外特性，需要 Sub-flow A 的数据" | Step1 → Sub-flow A → Sub-flow E |
-
-### 子流程间依赖关系
-
-```
-Sub-flow A (Ld/Lq MAP)     ← 独立，但 Sub-flow D/E 依赖其结果
-Sub-flow B (反电势)        ← 独立
-Sub-flow C (额定扭矩)      ← 独立
-Sub-flow D (工作特性 MAP)  ← 可重用 A 的结果优化工作点反算
-Sub-flow E (外特性)        ← 依赖 A 的输出
-```
-
-### 计划展示格式（auto 模式示例）
-
-```
-PMSM 计算计划：
-[x] Step 1: 打开模板项目
-[>] Sub-flow A: Ld/Lq MAP + 主磁链 Φ
-[ ] Sub-flow C: 额定点扭矩
-[ ] Sub-flow E: 外特性计算（Vdc=300V, Imax=200A）
-```
-
----
-
-## 子流程执行规范
-
-所有子流程的代码位于 `scripts/` 目录，方法说明见 `references/pmsm-methods.md`。
-AI 根据用户指令选择模块调用。详见设计文档 `docs/superpowers/specs/2026-07-12-pmsm-optimizer-design.md`。
-
-### 通用规范
-
-1. **每个脚本独立运行**，通过 `new_desktop=False` 保持会话连接
-2. **每脚本首行**：`sys.stdout.reconfigure(encoding='utf-8')`
-3. **heredoc 分隔符**：`<< 'EOF'`（带引号，防止 shell 展开 `$`）
-4. **不常用 API 前先查签名**：`python -c "from ansys.aedt.core import Maxwell2d; help(Maxwell2d.<method>)"`
-5. **每步验证**：输出关键结果确认合理后再继续
-
-### Sub-flow A：Ld/Lq MAP + 主磁链 Φ
-
-- 求解器：`MagnetostaticXY`
-- 方法：Id/Iq 矩阵扫描 + 磁链法
-- 输出：Ld(Id,Iq) / Lq(Id,Iq) MAP + 主磁链 Φ
-- 模板参考：`references/pmsm-methods.md` §A
+## 次要管线
 
 ### Sub-flow B：空载反电势
 
-- 求解器：`TransientXY`
-- 方法：空载额定转速旋转
-- 输出：三相 BEMF 波形 + FFT 谐波幅值 + THD
-- 波形图：自动生成 `bemf_{speed}rpm.png` 保存到项目目录（不含 FFT，仅时域波形）
-- 模板参考：`references/pmsm-methods.md` §B
+```
+求解器: TransientXY (5_Partial_motor_TR)
+方法:   Imax=0, 额定转速旋转一个电周期
+输出:   三相 BEMF 波形图 (bemf_{speed}rpm.png)
+```
+
+```python
+from scripts.subflow_b_bemf import run
+run(speed=3000, project_path='pmsm_projects/my_design')
+```
 
 ### Sub-flow C：额定点扭矩
 
-- 求解器：`TransientXY`
-- 方法：额定负载、额定转速
-- 输出：扭矩波形 + 平均值 + 脉动率
-- 模板参考：`references/pmsm-methods.md` §C
+```
+求解器: TransientXY (5_Partial_motor_TR)
+方法:   固定 (Imax, Thet_deg, Speed_rpm) 求解一个电周期
+输出:   扭矩波形 + 平均值 + 脉动率
+```
 
-### Sub-flow D：全域工作特性 MAP
+```python
+from scripts.subflow_c_torque import run
+run(imax=250, thet_deg=45, speed=3000, project_path='pmsm_projects/my_design')
+```
 
-- 求解器：`TransientXY`（批量）
-- 方法：T-n 网格扫描，每点一个电周期
-- 输出：损耗 MAP / Is MAP / 功率因数 MAP / 调制比 MAP
-- 模板参考：`references/pmsm-methods.md` §D
+### Ld/Lq 参数提取 (旧版 Sub-flow A)
 
-### Sub-flow E：外特性计算
+```
+求解器: MagnetostaticXY
+方法:   电流角扫描法 (与 Id/Iq 网格法不同)
+输出:   Ld(Id,Iq), Lq(Id,Iq), 主磁链 Φ
+```
 
-- 方法：纯数学计算（不跑 FEA）
-- 输入：Sub-flow A 结果 + 用户输入（Vdc/Imax/Rs）
-- 约束：电压圆 Vs ≤ Vdc/√3，电流圆 Is ≤ Imax
-- 区域：MTPA 恒扭矩区 + 弱磁区
-- 输出：T-n 曲线 + 工作点轨迹
-- 模板参考：`references/pmsm-methods.md` §E
+```python
+from scripts.subflow_a_ldlq import run
+r, phi = run(rated_current=250, max_current=1.4, current_steps=5, angle_steps=6,
+             project_path='pmsm_projects/my_design')
+```
 
----
-
-## 已知问题（继承 + PMSM 补充）
-
-### 继承自 maxwell2d-controller
-
-1. **GrpcApiError**：脚本中断后对象状态不同步 → `m2d.modeler.refresh_all_ids()` 或断开重连
-2. **API 参数名版本差异**：不常用 API 前先用 `help()` 确认签名
-3. **批量复制后材料设置失败**：使用 `assign_material()` 替代直接属性赋值
-4. **模块导入路径错误**：使用正确的 `ansys.aedt.core.modeler.modeler_2d` 等路径
-
-### PMSM 特有
-
-5. **冻结磁导率 API**：不同 PyAEDT 版本中冻结磁导率的 API 差异较大，使用前用 `help()` 确认
-6. **Band 运动带**：Band 必须是闭合环面，几何不正确时 `assign_rotate_motion` 报错
-7. **批量仿真资源管理**：Sub-flow D 可能跑几百个工况，建议：
-   - 先跑小网格验证（3×3 点），再跑完整网格
-   - 控制同时打开的 AEDT 实例数
-   - 每点仿真后检查收敛状态
-8. **电流角扫描的周期边界**：转子旋转后需确保 Master/Slave 边界对齐
+> 这是旧版 Ld/Lq 计算方法（电流角扫描），与主管线使用的 Id/Iq 网格法不同。通常推荐使用主管线的 Sub-flow A 获得 ψd/ψq 磁链表。
 
 ---
 
-## 执行模式切换
+## 参数权限
 
-用户可随时切换执行模式：
+各子流程允许修改的 FEA 设计变量：
 
-- "切换为确认模式" / "confirm mode" → config.json 中设为 `"confirm"`，后续每步等待确认
-- "切换为自动模式" / "auto mode" → config.json 中设为 `"auto"`，后续自动执行
-- "当前是什么模式" → 读取 config.json 告知用户
+| 子流程 | 允许修改 | 说明 |
+|--------|---------|------|
+| A (MTPA 标定) | `Imax`, `StackLength` | Id/Iq 由脚本内部自动控制；StackLength 设置 ModelDepth |
+| B (反电势) | `Speed_rpm`, `StackLength` | Imax 自动设为 0 |
+| C (额定扭矩) | `Imax`, `Speed_rpm`, `Thet_deg`, `StackLength` | |
+| D (效率 MAP) | `StackLength` | 纯解析，StackLength 需与 FEA 表一致（默认 83.82） |
+| E (外特性) | `StackLength` | 纯解析，StackLength 需与 FEA 表一致（默认 83.82） |
+
+**全局禁止修改**：`Poles`, `PolePairs`, 其他几何尺寸 (`AirGap`, `MagnetThickness` 等), 材料属性, MotionSetup 初始位置, Master/Slave 边界。
+
+---
+
+## 脚本索引
+
+```
+scripts/
+├── subflow_a_mtpa_cal.py       # ① 主管线: MTPA 标定 (FEA + 解析)
+├── subflow_e_external.py       # ② 主管线: 外特性 (解析)
+├── subflow_d_efficiency_map.py # ③ 主管线: 效率 MAP (解析)
+├── subflow_f_report.py         # ④ 主管线: 报告生成 (数据整合)
+├── subflow_a_ldlq.py           # 次要: Ld/Lq 参数 (FEA, 旧版电流角扫描)
+├── subflow_b_bemf.py           # 次要: 反电势 (FEA)
+├── subflow_c_torque.py         # 次要: 额定扭矩 (FEA)
+├── project_utils.py            # 项目创建/模板拷贝
+├── param_guard.py              # 参数权限守卫
+└── com_extract.py              # COM 后备提取 (实验性)
+```
 
 ---
 
 ## 自然语言示例
 
-以下输入应被理解并正确映射到子流程：
+| 用户说 | 执行计划 |
+|--------|---------|
+| "母线 500V，电流 300A，算全部性能" | ① A → ② E → ③ D → ④ F |
+| "生成报告" | ④ F (需 E/D 已完成) |
+| "算外特性，母线 300V，电流 200A" | ① A → ② E (Vdc=300, Imax=200) |
+| "跑个效率 MAP，500V 300A" | ① A → ③ D (如果 A 已有则跳过) |
+| "算空载反电势，3000rpm" | B (speed=3000) |
+| "额定点扭矩，250A, 45°, 3000rpm" | C (imax=250, thet=45, speed=3000) |
+| "算 Ld/Lq" | A (仅 Phase 1, 或旧版 subflow_a_ldlq) |
+| "全部算一遍" | ① A → ② E → ③ D → ④ F → B → C |
 
-```
-"帮我算 PMSM 的 Ld/Lq MAP，额定电流 12A，最大电流 36A"
-→ Step1 → Sub-flow A (rated_current=12, max_current=3x)
+---
 
-"算空载反电势，转速 4000rpm"
-→ Step1 → Sub-flow B (rated_speed=4000)
+## 已知问题
 
-"轴向长度改成 85mm，算额定扭矩和反电势"
-→ Step1 → Step2(改长度) → Sub-flow C → Sub-flow B
+1. **GrpcApiError**：FEA 脚本中断后对象状态不同步 → `m2d.modeler.refresh_all_ids()` 或重连
+2. **gRPC 重试**：Sub-flow A FEA 含自动重试（最多 3 次，指数退避）
+3. **铁耗模型**：Sub-flow D 铁耗为 Steinmetz 解析估计（f 指数 + 磁链指数），不含 PWM 谐波、磁钢涡流损耗，效率绝对值偏高约 1-3%
+4. **效率 MAP 无 FEA 验证**：当前效率为纯解析计算，电磁量基于 FEA 验证过的 ψd/ψq 表（扭矩误差 0.4-1.7%），但损耗未经过 FEA 直接验证
+5. **COM 后备方案**：`com_extract.py` 为实验性，CreateReport 数组序列化问题待解决
+6. **Band 运动带**：Band 必须是闭合环面，几何不正确时 `assign_rotate_motion` 报错
+7. **1/8 局部模型**：模板为 48 槽 8 极电机的 1/8 模型（Master/Slave 反周期边界），磁链自动缩放 8×。若更换模板需调整 `SYMMETRY_MULTIPLIER`。
 
-"跑个外特性，母线 250V，峰值电流 300A，电阻 0.008Ω"
-→ Step1 → Sub-flow A → Sub-flow E (Vdc=250, Imax=300, Rs=0.008)
+---
 
-"算损耗 MAP，转速 500-8000，10 个点"
-→ Step1 → Sub-flow D (speed_min=500, speed_max=8000, speed_steps=10)
-```
+## 执行模式
+
+读取 `config.json` 决定 auto/confirm 模式：
+
+- **auto**：展示计划后直接执行
+- **confirm**：每步等待用户确认
+
+切换："切换为确认模式" / "切换为自动模式"
