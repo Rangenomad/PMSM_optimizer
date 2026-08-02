@@ -1,0 +1,9 @@
+# PMSM Optimizer — Python 依赖
+# ⚠️ pyaedt 版本严格锁定，不要升级！
+# 已验证: pyaedt 0.25.1 + Python 3.13 + AEDT 2023.2
+# 其他版本组合见 SKILL.md § 环境要求
+
+pyaedt==0.25.1
+numpy>=1.20
+matplotlib>=3.5
+pywin32>=300

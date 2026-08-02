@@ -8,6 +8,34 @@ allowed-tools: Bash(python -c *) Bash(python << *) Read Write Glob
 
 基于 Ansys Maxwell2D (PyAEDT) 的永磁同步电机电磁参数提取与优化工具。
 
+## 环境要求
+
+| 组件 | 版本要求 | 说明 |
+|------|---------|------|
+| Python | ≥ 3.10 | 推荐 3.13 |
+| AEDT | 2023.2 | 需预先安装并可用 |
+| **pyaedt** | **0.25.1** | ⚠️ 版本敏感，见下方说明 |
+| numpy | ≥ 1.20 | pyaedt 依赖 |
+| matplotlib | 任意 | 波形图生成 |
+
+### ⚠️ pyaedt 版本兼容性
+
+pyaedt 版本与 AEDT/Python 版本之间有严格的兼容性约束。以下是经过验证的组合：
+
+| pyaedt | Python 3.13 | AEDT 2023.2 | 状态 |
+|--------|------------|-------------|------|
+| **0.25.1** | ✅ | ✅ | **唯一可用** |
+| 1.3.0 | ✅ | ❌ gRPC API 不兼容 (GetVariables/GetSolutionType/GetPropValue 失败) | 不可用 |
+| 0.7.x ~ 0.8.x | ❌ Python 3.13 不支持 | ✅ | 不可用 |
+
+> **安装命令**: `pip install pyaedt==0.25.1`
+
+分发此 skill 给他人时，必须确保接收方安装 pyaedt 0.25.1，否则数据提取阶段会因 gRPC 版本不匹配而失败（求解可以完成，但无法读取结果）。
+
+### COM 后备方案
+
+`scripts/com_extract.py` 提供基于 COM（win32com）的数据提取后备方案。COM 是 AEDT 的原生协议，自 AEDT 2015 起稳定不变。当 pyaedt gRPC 接口出现版本兼容问题时，可作为备选。**目前测试尚未完全通过**（CreateReport 数组序列化问题），保留供后续完善。
+
 ## 与 maxwell2d-controller 的关系
 
 本 skill 继承其设计原则（分步执行、auto/confirm 模式、跨步骤会话保持、代码规范），但专注于 PMSM 电磁设计这一个场景，不做通用电磁仿真。
